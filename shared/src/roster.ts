@@ -88,3 +88,29 @@ export function planJoin(
     waitlistCount: waitlisted + (state === 'waitlisted' ? 1 : 0),
   };
 }
+
+export function planLeave(game: Game, participants: Participant[], uid: string): RosterPlan {
+  const leaving = participants.find((p) => p.uid === uid);
+  if (!leaving) {
+    const { confirmed, waitlisted } = countStates(participants);
+    return { noop: true, add: null, removed: null, promoteUids: [], confirmedCount: confirmed, waitlistCount: waitlisted };
+  }
+  const remaining = participants.filter((p) => p.uid !== uid);
+  return { noop: false, add: null, removed: leaving, ...fillFromWaitlist(remaining, game.capacity) };
+}
+
+export function planCapacityChange(game: Game, participants: Participant[], newCapacity: number): RosterPlan {
+  const { confirmed } = countStates(participants);
+  if (newCapacity < confirmed) {
+    throw new DomainError(
+      'failed-precondition',
+      `Capacity can't be lower than the ${confirmed} confirmed players. Remove players first.`,
+    );
+  }
+  return {
+    noop: newCapacity === game.capacity,
+    add: null,
+    removed: null,
+    ...fillFromWaitlist(participants, newCapacity),
+  };
+}
