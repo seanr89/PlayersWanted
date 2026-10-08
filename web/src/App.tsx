@@ -7,6 +7,7 @@ import { Layout } from './components/Layout';
 import { GameDetail } from './screens/GameDetail';
 import { GameForm } from './screens/GameForm';
 import { GamesList } from './screens/GamesList';
+import { MyGames } from './screens/MyGames';
 
 export function App() {
   return (
@@ -32,6 +33,14 @@ export function App() {
               }
             />
             <Route path="/games/:gameId" element={<GameDetail />} />
+            <Route
+              path="/my-games"
+              element={
+                <RequireUser>
+                  <MyGames />
+                </RequireUser>
+              }
+            />
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/finish-sign-in" element={<FinishSignIn />} />
             <Route path="*" element={<p>Page not found.</p>} />
