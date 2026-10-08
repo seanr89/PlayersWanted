@@ -3,6 +3,7 @@ import { AuthProvider } from './auth/AuthProvider';
 import { FinishSignIn } from './auth/FinishSignIn';
 import { SignIn } from './auth/SignIn';
 import { Layout } from './components/Layout';
+import { GameDetail } from './screens/GameDetail';
 import { GamesList } from './screens/GamesList';
 
 export function App() {
@@ -12,6 +13,7 @@ export function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<GamesList />} />
+            <Route path="/games/:gameId" element={<GameDetail />} />
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/finish-sign-in" element={<FinishSignIn />} />
             <Route path="*" element={<p>Page not found.</p>} />
