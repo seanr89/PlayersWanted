@@ -1,6 +1,80 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} { allow read, write: if false; }
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function areaExists(areaId) {
+      return areaId is string && exists(/databases/$(database)/documents/areas/$(areaId));
+    }
+    function optionalString(d, key, maxLen) {
+      return !(key in d) || d[key] == null || (d[key] is string && d[key].size() <= maxLen);
+    }
+
+    match /areas/{areaId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /venues/{venueId} {
+      function validVenue() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['name', 'address', 'areaId', 'mapsUrl', 'createdBy', 'createdAt'])
+          && d.keys().hasAll(['name', 'address', 'areaId', 'createdBy', 'createdAt'])
+          && d.name is string && d.name.size() >= 2 && d.name.size() <= 60
+          && d.address is string && d.address.size() >= 2 && d.address.size() <= 120
+          && d.createdBy == request.auth.uid
+          && d.createdAt == request.time
+          && areaExists(d.areaId)
+          && (!('mapsUrl' in d) || (d.mapsUrl is string && d.mapsUrl.size() <= 500 && d.mapsUrl.matches('^https://.+')));
+      }
+      allow read: if true;
+      allow create: if signedIn() && validVenue();
+      allow update, delete: if false;
+    }
+
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if false;
+
+      match /participants/{uid} {
+        allow read: if signedIn();
+        allow write: if false;
+      }
+    }
+
+    // "My games" collection-group query over participants.
+    match /{path=**}/participants/{uid} {
+      allow read: if signedIn();
+    }
+
+    match /users/{uid} {
+      function validProfile() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['displayName', 'email', 'photoURL', 'homeAreaId', 'notify', 'createdAt'])
+          && d.keys().hasAll(['displayName', 'email', 'homeAreaId', 'notify', 'createdAt'])
+          && d.displayName is string && d.displayName.size() >= 2 && d.displayName.size() <= 30
+          && d.email == request.auth.token.email
+          && optionalString(d, 'photoURL', 1000)
+          && areaExists(d.homeAreaId)
+          && d.notify is map
+          && d.notify.keys().hasOnly(['email', 'push'])
+          && d.notify.email is bool && d.notify.push is bool;
+      }
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && validProfile() && request.resource.data.createdAt == request.time;
+      allow update: if isOwner(uid) && validProfile() && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+
+      match /pushTokens/{token} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['createdAt', 'userAgent'])
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.userAgent is string && request.resource.data.userAgent.size() <= 300;
+        allow update: if false;
+      }
+    }
+
+    // devOutbox is written by the functions emulator only; clients never see it.
   }
 }
