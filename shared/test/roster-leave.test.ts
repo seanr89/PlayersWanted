@@ -32,6 +32,14 @@ describe('planLeave', () => {
     expect(plan.waitlistCount).toBe(2);
   });
 
+  it('does not promote when promotion is turned off (game already started)', () => {
+    const plan = planLeave(makeGame({ capacity: 10 }), fullWithWaitlist(), 'c3', { promote: false });
+    expect(plan.removed?.uid).toBe('c3');
+    expect(plan.promoteUids).toEqual([]);
+    expect(plan.confirmedCount).toBe(9);
+    expect(plan.waitlistCount).toBe(3);
+  });
+
   it('is a no-op for someone not on the roster', () => {
     const plan = planLeave(makeGame(), confirmedPlayers(2), 'stranger');
     expect(plan.noop).toBe(true);

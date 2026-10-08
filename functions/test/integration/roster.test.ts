@@ -102,6 +102,16 @@ describe('leaveGame', () => {
     expect(notices).toEqual([]);
   });
 
+  it('cannot leave once the game has started (no promotion into a past game)', async () => {
+    for (let i = 0; i < 6; i++) await join(`p${i}`, i + 1);
+    await join('w', 10);
+    await expect(leaveGameHandler(ctxFor('p2', { now: NOW + 3 * 24 * HOUR }), { gameId })).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
+    expect((await participant('p2'))?.state).toBe('confirmed');
+    expect((await participant('w'))?.state).toBe('waitlisted');
+  });
+
   it('cannot leave a cancelled game', async () => {
     await join('alice', 1);
     await cancelGameHandler(ctxFor('org'), { gameId });
@@ -120,6 +130,16 @@ describe('removePlayer', () => {
       ['p0', 'removed'],
       ['w', 'promoted'],
     ]);
+  });
+
+  it('after kick-off, removing a player promotes no one', async () => {
+    for (let i = 0; i < 6; i++) await join(`p${i}`, i + 1);
+    await join('w', 10);
+    const { notices } = await removePlayerHandler(ctxFor('org', { now: NOW + 3 * 24 * HOUR }), { gameId, uid: 'p0' });
+    expect(await participant('p0')).toBeUndefined();
+    expect((await participant('w'))?.state).toBe('waitlisted');
+    expect(await gameDoc()).toMatchObject({ confirmedCount: 5, waitlistCount: 1 });
+    expect(notices.map((n) => [n.uid, n.event.type])).toEqual([['p0', 'removed']]);
   });
 
   it('only the organiser can remove', async () => {

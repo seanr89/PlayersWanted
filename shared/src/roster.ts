@@ -89,13 +89,22 @@ export function planJoin(
   };
 }
 
-export function planLeave(game: Game, participants: Participant[], uid: string): RosterPlan {
+export interface PlanLeaveOptions {
+  /** Fill the freed place from the waitlist. Off once the game has started. Default true. */
+  promote?: boolean;
+}
+
+export function planLeave(game: Game, participants: Participant[], uid: string, opts: PlanLeaveOptions = {}): RosterPlan {
   const leaving = participants.find((p) => p.uid === uid);
   if (!leaving) {
     const { confirmed, waitlisted } = countStates(participants);
     return { noop: true, add: null, removed: null, promoteUids: [], confirmedCount: confirmed, waitlistCount: waitlisted };
   }
   const remaining = participants.filter((p) => p.uid !== uid);
+  if (opts.promote === false) {
+    const { confirmed, waitlisted } = countStates(remaining);
+    return { noop: false, add: null, removed: leaving, promoteUids: [], confirmedCount: confirmed, waitlistCount: waitlisted };
+  }
   return { noop: false, add: null, removed: leaving, ...fillFromWaitlist(remaining, game.capacity) };
 }
 

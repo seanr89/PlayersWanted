@@ -2,6 +2,7 @@ import {
   DomainError,
   gameFromData,
   gameLabel,
+  hasStarted,
   isRecord,
   planJoin,
   planLeave,
@@ -51,14 +52,14 @@ export interface LeaveOptions {
   authorise: (game: Game) => void;
 }
 
-/** Removes a player and promotes from the waitlist. Returns the notices to send. */
+/** Removes a player and, before kick-off, promotes from the waitlist. Returns the notices to send. */
 export async function performLeave(db: Firestore, opts: LeaveOptions): Promise<Notice[]> {
   const { gameId, uid, now, mode } = opts;
   return db.runTransaction(async (tx) => {
     const { ref, game, participants } = await loadGameTx(tx, db, gameId);
     opts.authorise(game);
     assertOpen(game);
-    const plan = planLeave(game, participants, uid);
+    const plan = planLeave(game, participants, uid, { promote: !hasStarted(game, now) });
     if (plan.noop) return [];
     applyRosterPlan(tx, ref, participants, plan, now);
 
@@ -80,7 +81,15 @@ export async function performLeave(db: Firestore, opts: LeaveOptions): Promise<N
 
 export async function leaveGameHandler(ctx: CallContext, raw: unknown): Promise<HandlerResult<{ ok: true }>> {
   const gameId = requireId(raw, 'gameId');
-  const notices = await performLeave(ctx.db, { gameId, uid: ctx.uid, now: ctx.now, mode: 'left', authorise: () => {} });
+  const notices = await performLeave(ctx.db, {
+    gameId,
+    uid: ctx.uid,
+    now: ctx.now,
+    mode: 'left',
+    authorise: (game) => {
+      if (hasStarted(game, ctx.now)) throw new DomainError('failed-precondition', 'This game has already started.');
+    },
+  });
   return { data: { ok: true }, notices };
 }
 

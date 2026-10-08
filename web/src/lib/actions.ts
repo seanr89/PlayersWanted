@@ -6,8 +6,8 @@ export type PrimaryAction =
 
 export function primaryAction(game: Game, me: Participant | undefined, signedIn: boolean, now: number): PrimaryAction {
   if (game.status === 'cancelled') return { kind: 'none', label: 'This game was cancelled' };
-  if (me) return me.state === 'confirmed' ? { kind: 'leave', label: 'Leave game' } : { kind: 'leave-waitlist', label: 'Leave waitlist' };
   if (hasStarted(game, now)) return { kind: 'none', label: 'This game has started' };
+  if (me) return me.state === 'confirmed' ? { kind: 'leave', label: 'Leave game' } : { kind: 'leave-waitlist', label: 'Leave waitlist' };
   if (!signedIn) return { kind: 'sign-in', label: 'Sign in to join' };
   return isFull(game) ? { kind: 'join-waitlist', label: 'Join waitlist' } : { kind: 'join', label: 'Join game' };
 }

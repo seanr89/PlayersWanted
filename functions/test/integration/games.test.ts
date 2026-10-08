@@ -124,6 +124,16 @@ describe('updateGame', () => {
     ).resolves.toBeDefined();
   });
 
+  it('rejects a capacity change after kick-off (no promotion into a started game)', async () => {
+    const start = NOW + HOUR;
+    const id = await createGame({ startsAt: start, capacity: 6 });
+    for (let i = 0; i < 7; i++) await join(id, `p${i}`, i + 1);
+    await expect(
+      updateGameHandler(ctxFor('org', { now: NOW + 2 * HOUR }), { gameId: id, ...gameInput({ startsAt: start, capacity: 8 }) }),
+    ).rejects.toMatchObject({ code: 'failed-precondition' });
+    expect((await participant(id, 'p6'))?.state).toBe('waitlisted');
+  });
+
   it('sends no change notices for a notes-only edit', async () => {
     const id = await createGame();
     await join(id, 'a', 1);

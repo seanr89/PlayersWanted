@@ -67,11 +67,11 @@ service cloud.firestore {
 
       match /pushTokens/{token} {
         allow read, delete: if isOwner(uid);
-        allow create: if isOwner(uid)
+        // Update too: re-enabling push on the same device re-registers the same token.
+        allow create, update: if isOwner(uid)
           && request.resource.data.keys().hasOnly(['createdAt', 'userAgent'])
           && request.resource.data.createdAt == request.time
           && request.resource.data.userAgent is string && request.resource.data.userAgent.size() <= 300;
-        allow update: if false;
       }
     }
 

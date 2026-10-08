@@ -129,6 +129,14 @@ describe('users', () => {
     await assertFails(setDoc(doc(as('alice'), 'users/bob/pushTokens/tok2'), token));
     await assertFails(getDoc(doc(as('alice'), 'users/bob/pushTokens/tok1')));
   });
+
+  it('the owner can re-register an existing push token (push off, then on again)', async () => {
+    const token = { createdAt: serverTimestamp(), userAgent: 'test' };
+    await assertSucceeds(setDoc(doc(as('bob'), 'users/bob/pushTokens/tok1'), token));
+    await assertSucceeds(setDoc(doc(as('bob'), 'users/bob/pushTokens/tok1'), token));
+    await assertFails(setDoc(doc(as('alice'), 'users/bob/pushTokens/tok1'), token));
+    await assertFails(setDoc(doc(as('bob'), 'users/bob/pushTokens/tok1'), { ...token, extra: true }));
+  });
 });
 
 describe('venues and areas', () => {

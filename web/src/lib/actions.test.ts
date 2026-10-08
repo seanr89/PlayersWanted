@@ -48,6 +48,13 @@ describe('primaryAction', () => {
     expect(primaryAction(game(), me('confirmed'), true, NOW).kind).toBe('leave');
     expect(primaryAction(game(), me('waitlisted'), true, NOW).kind).toBe('leave-waitlist');
   });
+  it('offers no leave to participants once the game has started', () => {
+    expect(primaryAction(game({ startsAt: NOW }), me('confirmed'), true, NOW)).toEqual({
+      kind: 'none',
+      label: 'This game has started',
+    });
+    expect(primaryAction(game({ startsAt: NOW }), me('waitlisted'), true, NOW).kind).toBe('none');
+  });
   it('offers nothing on cancelled or started games to non-participants', () => {
     expect(primaryAction(game({ status: 'cancelled' }), me('confirmed'), true, NOW).kind).toBe('none');
     expect(primaryAction(game({ startsAt: NOW }), undefined, true, NOW).kind).toBe('none');

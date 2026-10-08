@@ -1,6 +1,7 @@
 import {
   DomainError,
   gameLabel,
+  hasStarted,
   planCapacityChange,
   requireId,
   validateGameInput,
@@ -59,6 +60,9 @@ export async function updateGameHandler(ctx: CallContext, raw: unknown): Promise
       venue = venueSnapshot(venueSnap.data()!);
     }
     const timeChanged = input.startsAt !== game.startsAt;
+    if (input.capacity !== game.capacity && hasStarted(game, ctx.now)) {
+      throw new DomainError('failed-precondition', "Capacity can't change after kick-off.");
+    }
     const plan = planCapacityChange(game, participants, input.capacity);
 
     applyRosterPlan(tx, ref, participants, plan, ctx.now, {
