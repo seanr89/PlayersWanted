@@ -1,0 +1,5 @@
+[
+  { "id": "town-centre", "name": "Town Centre", "order": 1 },
+  { "id": "north", "name": "North", "order": 2 },
+  { "id": "south", "name": "South", "order": 3 }
+]
