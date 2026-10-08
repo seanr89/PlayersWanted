@@ -8,6 +8,7 @@ import { GameDetail } from './screens/GameDetail';
 import { GameForm } from './screens/GameForm';
 import { GamesList } from './screens/GamesList';
 import { MyGames } from './screens/MyGames';
+import { Profile } from './screens/Profile';
 
 export function App() {
   return (
@@ -38,6 +39,14 @@ export function App() {
               element={
                 <RequireUser>
                   <MyGames />
+                </RequireUser>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <RequireUser>
+                  <Profile />
                 </RequireUser>
               }
             />

@@ -10,6 +10,7 @@ import { api } from '../lib/api';
 import { errorMessage } from '../lib/errors';
 import { useLiveDoc, useLiveQuery } from '../lib/hooks';
 import { useOnline } from '../lib/useOnline';
+import { currentPermission, enablePush, isStandalone, shouldPromptForPush } from '../push';
 
 function mapsLink(game: Game): string {
   return game.venue.mapsUrl ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(game.venue.address)}`;
@@ -18,11 +19,12 @@ function mapsLink(game: Game): string {
 export function GameDetail() {
   const { gameId = '' } = useParams();
   const [params] = useSearchParams();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const online = useOnline();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [offerPush, setOfferPush] = useState(false);
 
   const game = useLiveDoc(`games/${gameId}`, (d) => (d.exists() ? gameFromData(d.id, d.data()) : null));
   const roster = useLiveQuery(
@@ -73,6 +75,9 @@ export function GameDetail() {
         return run(async () => {
           const { state } = await api.joinGame({ gameId });
           setNotice(state === 'confirmed' ? "You're in!" : "You're on the waitlist. We'll tell you if a space opens.");
+          if (profile && shouldPromptForPush({ standalone: isStandalone(), permission: currentPermission(), pushOn: profile.notify.push })) {
+            setOfferPush(true);
+          }
         });
       case 'leave':
       case 'leave-waitlist':
@@ -127,6 +132,15 @@ export function GameDetail() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      {offerPush && user && (
+        <p className="card">
+          Get a push notification if the game changes?{' '}
+          <button onClick={() => void enablePush(user.uid).finally(() => setOfferPush(false))}>Turn on</button>{' '}
+          <button className="secondary" onClick={() => setOfferPush(false)}>
+            Not now
+          </button>
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
 
       {isOrganiser && g.status === 'scheduled' && (
