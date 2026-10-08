@@ -22,7 +22,7 @@ A mobile-first PWA on Firebase: post a game, share the link, and let the roster 
 
 ## Local development
 
-Needs Node 20 (20.19 or later) and Java 11+ (for the Firestore emulator).
+Needs Node 22 and Java 11+ (for the Firestore emulator).
 
 ```bash
 npm install

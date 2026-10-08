@@ -4,7 +4,7 @@ const options = {
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   format: 'cjs',
   outfile: 'lib/index.js',
   sourcemap: true,
