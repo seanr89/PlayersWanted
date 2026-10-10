@@ -209,3 +209,33 @@ describe("A match nobody has recorded a result for", () => {
     expect((await getNextMatchView(member("A").client, groupId)).match).toBeNull();
   });
 });
+
+describe("A draft that has gone out of date", () => {
+  it("is flagged to the Admin, who is told to make the teams again rather than publish", async () => {
+    const { sean, groupId, member } = await league(["A", "B", "C", "D"], 4);
+    const matchId = await createMatch(sean, groupId, { startsAt: inHours(48), capacity: 4 });
+    await openRsvps(sean, matchId);
+    for (const n of ["A", "B", "C", "D"]) await setRsvp(member(n).client, matchId, "in");
+    await generateDraftTeams(sean, matchId);
+    expect((await getNextMatchView(sean, groupId)).admin).toMatchObject({ nextAction: "publish_teams", draftStale: false });
+
+    await setRsvp(member("D").client, matchId, "out");
+
+    expect((await getNextMatchView(sean, groupId)).admin).toMatchObject({ nextAction: "redo_teams", draftStale: true });
+
+    await generateDraftTeams(sean, matchId);
+    expect((await getNextMatchView(sean, groupId)).admin).toMatchObject({ nextAction: expect.stringMatching(/publish_teams|nudge/), draftStale: false });
+  });
+
+  it("counts only players who are playing when asking the Admin to make teams", async () => {
+    const { sean, groupId, member } = await league(["A", "B", "C"], 2);
+    const matchId = await createMatch(sean, groupId, { startsAt: inHours(48), capacity: 2 });
+    await openRsvps(sean, matchId);
+    for (const n of ["A", "B", "C"]) await setRsvp(member(n).client, matchId, "in");
+
+    const view = await getNextMatchView(sean, groupId);
+
+    expect(view.counts).toMatchObject({ playing: 2, waitlisted: 1 });
+    expect(view.admin?.nextAction).toBe("generate_teams");
+  });
+});

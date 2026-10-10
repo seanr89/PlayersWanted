@@ -11,6 +11,7 @@
   --bib: #14211a; /* the dark team */
   --muted: #55665b;
   --rule: #cdd8c9;
+  --edge: #7d8f83; /* a border you can see: 3:1 against the page */
   --warn: #a3490a;
   --bad: #b3261e;
   --on-turf: #ffffff; /* white on turf is 5.4:1 */
@@ -29,6 +30,7 @@
     --bib: #dfe9e0;
     --muted: #93a79a;
     --rule: #263a2d;
+    --edge: #5f7667;
     --warn: #e0954f;
     --bad: #f08a82;
   }
@@ -40,6 +42,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 9rem; /* clears the sticky Balance meter */
   scroll-padding-bottom: calc(var(--tab-height) + 16px);
 }
 
@@ -481,7 +484,8 @@ select {
   .spinner {
     animation: none;
   }
-  .in-button {
+  .in-button,
+  .meter-a {
     transition: none;
   }
 }
@@ -595,14 +599,14 @@ select {
   font: inherit;
   color: inherit;
   background: var(--chalk);
-  border: 2px solid var(--rule);
+  border: 2px solid var(--edge);
   border-radius: 6px;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
-.player:disabled {
+.player.static {
   cursor: default;
-  opacity: 1;
 }
 
 .player[aria-pressed="true"] {
@@ -627,4 +631,11 @@ select {
   grid-column: 1 / -1;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+/* Two narrow columns would break names mid-word, so stack the teams on very small screens. */
+@media (max-width: 340px) {
+  .assign {
+    grid-template-columns: 1fr;
+  }
 }

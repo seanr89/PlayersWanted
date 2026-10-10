@@ -1,10 +1,11 @@
 // Shared by the manual end-to-end scripts. They need the local Supabase stack (with Mailpit's SMTP port exposed),
 // `npm run dev` on :3000, and `npx playwright install chromium` once.
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 export const APP = process.env.APP_URL ?? "http://localhost:3000";
 export const MAILPIT = "http://127.0.0.1:54324";
-export const shots = new URL("./shots/", import.meta.url).pathname;
+export const shots = fileURLToPath(new URL("./shots/", import.meta.url));
 export const step = (message) => console.log(`- ${message}`);
 
 /** Waits for the sign-in link Mailpit caught for an address. */
@@ -38,7 +39,7 @@ export async function startGroup(page, { groupName, yourName }) {
 
 /** Test setup only: runs SQL as the database owner. */
 export function sql(query) {
-  return execFileSync("docker", ["exec", "supabase_db_PlayersWanted", "psql", "-U", "postgres", "-tAc", query], { encoding: "utf8" }).trim();
+  return execFileSync("docker", ["exec", process.env.DB_CONTAINER ?? "supabase_db_PlayersWanted", "psql", "-U", "postgres", "-tAc", query], { encoding: "utf8" }).trim();
 }
 
 /** Sets a datetime-local input's value for a time `days` from now at 19:00. */

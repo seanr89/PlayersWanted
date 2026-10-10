@@ -64,6 +64,8 @@ try {
   if (buttonBottom > tabTop) throw new Error("the tab bar covers the buttons");
   await page.screenshot({ path: `${shots}20b-teams-scrolled.png` });
   await page.evaluate(() => window.scrollTo(0, 0));
+  const label = await side("A").locator(".player").first().evaluate((el) => el.textContent);
+  if (!/, rating \d+/.test(label)) throw new Error(`a player's name should say "rating": ${label}`);
   step(`teams made: A=${a0.join("/")} B=${b0.join("/")} (${gap0})`);
 
   // 2. Tap a player, then someone on the other team: they swap, and the meter moves at once.
@@ -76,22 +78,30 @@ try {
   await side("A").locator(".player-name", { hasText: firstB }).waitFor();
   const a1 = await namesIn("A");
   if (!a1.includes(firstB) || a1.includes(firstA)) throw new Error("the swap did not happen");
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-player"), null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus was lost after the swap");
+  });
   const gap1 = await gapText();
   step(`swapped ${firstA} and ${firstB}: ${gap0} -> ${gap1}`);
   await page.screenshot({ path: `${shots}22-teams-swapped.png`, fullPage: true });
 
   // 3. The swap was saved: a reload shows the same teams.
-  await page.waitForTimeout(800);
+  await page.waitForLoadState("networkidle");
   await page.reload();
   await page.getByRole("heading", { name: "Balance" }).waitFor();
   if (JSON.stringify(await namesIn("A")) !== JSON.stringify(a1)) throw new Error("the swap was not saved");
   step("swap persisted across a reload");
 
-  // 4. Next suggestion steps along the generator's ranked list.
+  // 4. Next suggestion steps along the generator's ranked list (confirming, as the teams were edited).
   await page.getByText("Suggestion 1.").waitFor();
   await page.getByRole("button", { name: "Next suggestion" }).click();
+  await page.getByRole("group", { name: /Swap in the next suggestion/ }).waitFor();
+  await page.getByRole("button", { name: "Keep these" }).click(); // keeping them changes nothing
+  if (!(await namesIn("A")).includes(firstB)) throw new Error("keeping the swap changed the teams");
+  await page.getByRole("button", { name: "Next suggestion" }).click();
+  await page.getByRole("button", { name: "Show the next suggestion" }).click();
   await page.getByText("Suggestion 2.").waitFor();
-  step("next suggestion works");
+  step("next suggestion asks before replacing swaps, then works");
 
   // 4b. "Start again" asks first, and keeping the teams changes nothing.
   const beforeAgain = JSON.stringify(await namesIn("A"));
@@ -111,7 +121,8 @@ try {
   // 6. A published team screen is read-only.
   await page.getByRole("link", { name: "See the balance" }).click();
   await page.getByText("These teams are published").waitFor();
-  if (await side("A").locator(".player").first().isEnabled()) throw new Error("published teams should not be editable");
+  if ((await side("A").locator("button.player").count()) > 0) throw new Error("published teams should not be editable");
+  if ((await side("A").locator(".player").count()) !== 4) throw new Error("published teams should still be listed");
   step("published teams are read-only");
 } catch (error) {
   await fail(error);

@@ -45,6 +45,7 @@ export type NextAction =
   | "nudge"
   | "generate_teams"
   | "publish_teams"
+  | "redo_teams"
   | "review_dropout"
   | "record_result"
   | "nothing";
@@ -69,7 +70,14 @@ export interface NextMatchView {
   teams: MatchTeams | null;
   myTeam: "A" | "B" | null;
   /** Present only for Admins. */
-  admin?: { nextAction: NextAction; inCount: number; belowMinimum: boolean; pendingClaims: number };
+  admin?: {
+    nextAction: NextAction;
+    inCount: number;
+    belowMinimum: boolean;
+    pendingClaims: number;
+    /** A draft exists but someone has dropped out or joined since it was made. */
+    draftStale: boolean;
+  };
 }
 
 /** A match that started this long ago and is still unfinished is treated as forgotten, not "next". */
@@ -106,7 +114,9 @@ export async function getNextMatchView(client: SupabaseClient, groupId: string):
       whosIn: [],
       teams: null,
       myTeam: null,
-      ...(admin ? { admin: { nextAction: "create_match" as const, inCount: 0, belowMinimum: false, pendingClaims } } : {}),
+      ...(admin
+        ? { admin: { nextAction: "create_match" as const, inCount: 0, belowMinimum: false, pendingClaims, draftStale: false } }
+        : {}),
     };
   }
 
@@ -145,11 +155,15 @@ export async function getNextMatchView(client: SupabaseClient, groupId: string):
 
   if (admin) {
     const inCount = playing + waitlisted;
+    const playingIds = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+    const onTeams = [...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId);
+    const draftStale = teams?.state === "draft" && !(onTeams.length === playingIds.size && onTeams.every((id) => playingIds.has(id)));
     view.admin = {
-      nextAction: await nextAction(client, match, teams, inCount, group.minPlayers),
+      nextAction: await nextAction(client, match, teams, inCount, group.minPlayers, draftStale),
       inCount,
       belowMinimum: inCount < group.minPlayers,
       pendingClaims,
+      draftStale,
     };
   }
   return view;
@@ -161,12 +175,13 @@ async function nextAction(
   teams: MatchTeams | null,
   inCount: number,
   minPlayers: number,
+  draftStale: boolean,
 ): Promise<NextAction> {
   switch (match.status) {
     case "scheduled":
       return "open_rsvps";
     case "rsvps_open":
-      if (teams?.state === "draft") return "publish_teams";
+      if (teams?.state === "draft") return draftStale ? "redo_teams" : "publish_teams";
       return inCount < minPlayers ? "nudge" : "generate_teams";
     case "teams_published":
       if (await getProposedFix(client, match.id)) return "review_dropout";
@@ -212,6 +227,7 @@ export async function getTeamAssignmentView(client: SupabaseClient, matchId: str
     getPairRules(client, match.groupId),
     client.from("teams").select("rank").eq("match_id", matchId).maybeSingle(),
   ]);
+  if (rankRow.error) throw new Error(rankRow.error.message);
   const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
   const onTeams = new Set([...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId));
   const players = await ratedPlayers(client, match, new Set([...playing, ...onTeams]));

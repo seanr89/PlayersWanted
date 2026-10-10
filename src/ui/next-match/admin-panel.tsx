@@ -76,7 +76,7 @@ export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view
     case "generate_teams":
       body = (
         <>
-          <p>{admin.inCount} in. Ready to pick teams.</p>
+          <p>{view.counts.playing} playing. Ready to pick teams.</p>
           <button
             className="button primary"
             disabled={action.busy}
@@ -104,6 +104,16 @@ export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view
               Publish as they are
             </button>
           </div>
+        </>
+      );
+      break;
+    case "redo_teams":
+      body = (
+        <>
+          <p>Your drafted teams are out of date: someone dropped out or joined since you made them.</p>
+          <Link className="button primary" href={teamsScreen}>
+            Fix the teams
+          </Link>
         </>
       );
       break;
