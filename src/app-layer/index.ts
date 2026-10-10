@@ -214,7 +214,7 @@ export async function getMatches(client: SupabaseClient, groupId: string): Promi
   return (data ?? []).map(toMatch);
 }
 
-async function fetchMatch(client: SupabaseClient, matchId: string): Promise<Match> {
+export async function fetchMatch(client: SupabaseClient, matchId: string): Promise<Match> {
   const { data, error } = await client.from("matches").select(MATCH_COLUMNS).eq("id", matchId).single();
   if (error) throw new Error(error.message);
   return toMatch(data);
@@ -265,7 +265,7 @@ export async function removePairRule(client: SupabaseClient, a: string, b: strin
   await command(client, "remove_pair_rule", { p_a: a, p_b: b });
 }
 
-async function getPairRules(client: SupabaseClient, groupId: string): Promise<Rules> {
+export async function getPairRules(client: SupabaseClient, groupId: string): Promise<Rules> {
   const { data, error } = await client
     .from("pair_rules")
     .select("a_membership_id, b_membership_id, kind")
@@ -283,7 +283,7 @@ function averageRating(squad: SquadMember[]): number {
 }
 
 /** The given players (Squad members and Guests) with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
-async function ratedPlayers(client: SupabaseClient, match: Match, ids: Set<string>): Promise<Player[]> {
+export async function ratedPlayers(client: SupabaseClient, match: Match, ids: Set<string>): Promise<Player[]> {
   const [squad, guests] = await Promise.all([getSquad(client, match.groupId), getGuests(client, match.id)]);
   const members = squad
     .filter((m) => ids.has(m.id))

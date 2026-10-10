@@ -1,11 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Player, Rules } from "../team-generator";
 import {
+  fetchMatch,
   getGroup,
   getMatchRsvps,
   getMatches,
+  getPairRules,
   getPendingClaims,
   getProposedFix,
   getTeams,
+  isAdmin,
+  ratedPlayers,
   type ClaimState,
   type Match,
   type MatchTeams,
@@ -169,4 +174,73 @@ async function nextAction(
     default:
       return "nothing";
   }
+}
+
+export interface AssignedPlayer {
+  membershipId: string;
+  displayName: string;
+  /** Null only for someone who has left since Teams were published: they have no Rating to show. */
+  rating: number | null;
+  position: Player["position"] | null;
+  happyInGoal: boolean;
+  isGuest: boolean;
+}
+
+export interface TeamAssignmentView {
+  match: Match;
+  /** "none" before any Teams are made. */
+  state: "none" | "draft" | "published";
+  teamA: AssignedPlayer[];
+  teamB: AssignedPlayer[];
+  /** Everything the generator needs to score any arrangement on the device (the live Balance meter). */
+  players: Player[];
+  rules: Rules;
+  /** Where in the generator's ranked list the current suggestion came from (0 = best). */
+  rank: number;
+  /** A draft that no longer matches who is playing: someone dropped out or joined since it was made. */
+  stale: boolean;
+}
+
+/** Admin-only: it carries Ratings. Everything the team-assignment screen shows and needs to score a swap. */
+export async function getTeamAssignmentView(client: SupabaseClient, matchId: string): Promise<TeamAssignmentView> {
+  const match = await fetchMatch(client, matchId);
+  if (!(await isAdmin(client, match.groupId))) throw new Error("only an admin can see the team assignment");
+
+  const [rsvps, teams, rules, rankRow] = await Promise.all([
+    getMatchRsvps(client, matchId),
+    getTeams(client, matchId),
+    getPairRules(client, match.groupId),
+    client.from("teams").select("rank").eq("match_id", matchId).maybeSingle(),
+  ]);
+  const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+  const onTeams = new Set([...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId));
+  const players = await ratedPlayers(client, match, new Set([...playing, ...onTeams]));
+  const known = new Map(players.map((p) => [p.id, p]));
+  const guests = new Set(rsvps.filter((r) => r.isGuest).map((r) => r.membershipId));
+
+  const assigned = (side: { membershipId: string; displayName: string }[]): AssignedPlayer[] =>
+    side.map(({ membershipId, displayName }) => {
+      const p = known.get(membershipId);
+      return {
+        membershipId,
+        displayName,
+        rating: p?.rating ?? null,
+        position: p?.position ?? null,
+        happyInGoal: p?.happyInGoal ?? false,
+        isGuest: guests.has(membershipId),
+      };
+    });
+
+  const state = teams?.state ?? "none";
+  const sameAsPlaying = onTeams.size === playing.size && [...onTeams].every((id) => playing.has(id));
+  return {
+    match,
+    state,
+    teamA: assigned(teams?.teamA ?? []),
+    teamB: assigned(teams?.teamB ?? []),
+    players: players.filter((p) => playing.has(p.id) || onTeams.has(p.id)),
+    rules,
+    rank: rankRow.data?.rank ?? 0,
+    stale: state === "draft" && !sameAsPlaying,
+  };
 }
