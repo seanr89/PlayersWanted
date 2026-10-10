@@ -20,6 +20,8 @@ interface SessionValue {
   /** Signs in anonymously if nobody is signed in, so a player can open an invite link without an account. */
   ensureSignedIn: () => Promise<void>;
   sendMagicLink: (email: string, returnTo: string) => Promise<void>;
+  /** Attaches an email to the current (anonymous) player, so they can sign in again on another device. */
+  linkEmail: (email: string, returnTo: string) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
 }
 
@@ -57,13 +59,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [client],
   );
 
+  const linkEmail = useCallback(
+    async (email: string, returnTo: string) => {
+      const { data, error } = await client.auth.updateUser({ email }, { emailRedirectTo: returnTo });
+      if (error) throw new Error(error.message);
+      // With confirmation on, the address is "pending" until they open the emailed link; otherwise it is saved now.
+      return { needsConfirmation: data.user?.email !== email };
+    },
+    [client],
+  );
+
   const signOut = useCallback(async () => {
     await client.auth.signOut();
   }, [client]);
 
   const value = useMemo(
-    () => ({ client, user, ready, ensureSignedIn, sendMagicLink, signOut }),
-    [client, user, ready, ensureSignedIn, sendMagicLink, signOut],
+    () => ({ client, user, ready, ensureSignedIn, sendMagicLink, linkEmail, signOut }),
+    [client, user, ready, ensureSignedIn, sendMagicLink, linkEmail, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

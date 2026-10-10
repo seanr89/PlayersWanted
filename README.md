@@ -118,3 +118,23 @@ can trigger at most one "Match at risk" email to Admins per match every ten minu
 (`http://127.0.0.1:54324`). There is no unsubscribe or per-person preference yet.
 
 Still to do: web push, email opt-out, retry for failed deliveries.
+
+## Before going to production
+
+The local setup is deliberately loose so it is easy to work with. Change these for a hosted project:
+
+- **Anonymous sign-ins** let players join without an account, so keep them on, but `supabase/config.toml` sets very high rate
+  limits for local testing (`anonymous_users`, `sign_in_sign_ups`). Lower them (roughly 10 to 30 per hour per IP) and turn on
+  CAPTCHA. Starting a Group already needs a real (non-anonymous) account: the database rule `require_account_to_create_group`
+  in `app_settings` is on by default; the integration tests switch it off while they run and back on afterwards.
+- **Email:** turn email confirmation **on** (`enable_confirmations`), use a real SMTP provider (the default allows only a couple
+  of emails an hour), and set `SMTP_URL` / `EMAIL_FROM` for the delivery worker.
+- **Sign-in links** only go to allow-listed addresses. Add your production address to Redirect URLs (hosted dashboard:
+  Authentication, URL Configuration; locally: `additional_redirect_urls`) and set the Site URL.
+- **App address:** set `NEXT_PUBLIC_APP_URL` so shared links point at the real site.
+- **Delivery worker:** set `CRON_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` (server-side only) and schedule a POST to
+  `/api/notifications/dispatch`.
+- **Security headers:** `next.config.ts` sets basic headers (no referrer, no framing). A strict script policy
+  (Content-Security-Policy with nonces) is still to do.
+- Players who joined anonymously can lose their identity if they clear their browser; the Group tab offers "Keep your place"
+  (adds an email to the same player).

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { getMyGroups } from "../app-layer";
-import { ErrorNote, Loading } from "../ui/parts";
+import { ROLE_LABEL } from "../ui/format";
+import { ErrorNote, LoadingPage, useTitle } from "../ui/parts";
 import { useSession } from "../ui/session";
 import { useAsync } from "../ui/use-async";
 
@@ -12,12 +13,13 @@ export default function Home() {
   const { client, ready, user } = useSession();
   const router = useRouter();
   const groups = useAsync(async () => (user ? getMyGroups(client) : []), [client, user?.id]);
+  useTitle("Bibleague");
 
   useEffect(() => {
     if (groups.data?.length === 1) router.replace(`/g/${groups.data[0]!.id}`);
   }, [groups.data, router]);
 
-  if (!ready || groups.loading || groups.data?.length === 1) return <main className="page no-tabs"><Loading /></main>;
+  if (!ready || groups.loading || groups.data?.length === 1) return <LoadingPage tabs={false} />;
 
   return (
     <main className="page no-tabs pitch">
@@ -26,11 +28,11 @@ export default function Home() {
       {groups.data && groups.data.length > 1 ? (
         <div className="stack">
           <h2>Your games</h2>
-          <ul className="list">
+          <ul className="list" role="list">
             {groups.data.map((g) => (
               <li key={g.id}>
                 <Link href={`/g/${g.id}`}>{g.name}</Link>
-                <span className="tag">{g.myRole === "member" ? "Player" : g.myRole === "owner" ? "Owner" : "Admin"}</span>
+                <span className="tag">{ROLE_LABEL[g.myRole]}</span>
               </li>
             ))}
           </ul>
@@ -45,9 +47,16 @@ export default function Home() {
           <p className="muted">Got an invite link? Open it from WhatsApp and pick your name.</p>
         </div>
       )}
-      <Link className="button primary block" href="/start">
-        Start a group
-      </Link>
+      <div className="stack">
+        <Link className="button primary block" href="/start">
+          Start a group
+        </Link>
+        {!user && (
+          <Link className="button quiet block" href="/signin">
+            Sign in
+          </Link>
+        )}
+      </div>
     </main>
   );
 }

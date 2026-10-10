@@ -3,18 +3,18 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { getInvite, getMyGroups, joinGroup } from "../../../app-layer";
-import { ErrorNote, Loading } from "../../../ui/parts";
+import { ErrorNote, Field, LoadingPage, useTitle } from "../../../ui/parts";
 import { useSession } from "../../../ui/session";
-import { messageOf, useAsync } from "../../../ui/use-async";
+import { useAction } from "../../../ui/use-action";
+import { useAsync } from "../../../ui/use-async";
 
 /** "Which one are you?": players open the invite link, tap their name, and are in. No password. */
 export default function JoinPage() {
   const { token } = useParams<{ token: string }>();
   const { client, ready, ensureSignedIn } = useSession();
   const router = useRouter();
+  const action = useAction();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const invite = useAsync(async () => {
     if (!ready) return null;
@@ -27,21 +27,20 @@ export default function JoinPage() {
     }
     return found;
   }, [client, ready, token]);
+  useTitle(invite.data ? `Join ${invite.data.groupName}` : "Join a group · Bibleague");
 
   async function join(args: { name: string; claim?: string }) {
     if (!invite.data) return;
-    setBusy(true);
-    setError(null);
-    try {
+    const groupId = invite.data.groupId;
+    const joined = await action.run(async () => {
       await joinGroup(client, token, args);
-      router.push(`/g/${invite.data.groupId}`);
-    } catch (e) {
-      setError(messageOf(e));
-      setBusy(false);
-    }
+      router.push(`/g/${groupId}`);
+    });
+    // If someone else got that name first, show the list as it is now rather than a stale button.
+    if (!joined) await invite.reload();
   }
 
-  if (!ready || invite.loading) return <main className="page no-tabs"><Loading /></main>;
+  if (!ready || invite.loading) return <LoadingPage tabs={false} />;
   if (invite.error) {
     return (
       <main className="page no-tabs">
@@ -50,7 +49,7 @@ export default function JoinPage() {
       </main>
     );
   }
-  if (!invite.data) return <main className="page no-tabs"><Loading /></main>;
+  if (!invite.data) return <LoadingPage tabs={false} />;
 
   const { groupName, ghosts } = invite.data;
   return (
@@ -64,7 +63,7 @@ export default function JoinPage() {
           <h2>Which one are you?</h2>
           <div className="pick-list">
             {ghosts.map((g) => (
-              <button key={g.id} className="button block" disabled={busy} onClick={() => join({ name: g.displayName, claim: g.id })}>
+              <button key={g.id} className="button block" disabled={action.busy} onClick={() => join({ name: g.displayName, claim: g.id })}>
                 I&apos;m {g.displayName}
               </button>
             ))}
@@ -79,12 +78,11 @@ export default function JoinPage() {
         }}
       >
         <h2>{ghosts.length > 0 ? "Not on the list?" : "What should we call you?"}</h2>
-        <label>
-          Your name
-          <input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <ErrorNote message={error} />
-        <button className="button primary block" disabled={busy || name.trim() === ""}>
+        <Field label="Your name">
+          <input required maxLength={80} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <ErrorNote message={action.error} />
+        <button className="button primary block" disabled={action.busy || name.trim() === ""}>
           Join
         </button>
       </form>

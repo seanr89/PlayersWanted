@@ -3,8 +3,8 @@
  * The memorable element is the "I'm in" button, drawn as the centre circle on the halfway line.
  */
 :root {
-  --turf: #0b8a4a;
-  --turf-pressed: #086b3a;
+  --turf: #087a41;
+  --turf-pressed: #066435;
   --touchline: #0c2a1c; /* ink */
   --chalk: #f4f6f1; /* page */
   --stripe: #edf2ea; /* mown stripe */
@@ -13,7 +13,7 @@
   --rule: #cdd8c9;
   --warn: #a3490a;
   --bad: #b3261e;
-  --on-turf: #ffffff;
+  --on-turf: #ffffff; /* white on turf is 5.4:1 */
   --display: var(--font-display), "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
   --tab-height: 64px;
 }
@@ -22,6 +22,7 @@
   :root {
     --turf: #19a45e;
     --turf-pressed: #128a4e;
+    --on-turf: #06140c; /* dark text on the brighter green is 5.8:1 */
     --touchline: #e8f0e9;
     --chalk: #0d1710;
     --stripe: #0f1b13;
@@ -39,6 +40,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-padding-bottom: calc(var(--tab-height) + 16px);
 }
 
 body {
@@ -95,7 +97,7 @@ h3 {
 .page {
   max-width: 560px;
   margin: 0 auto;
-  padding: 24px 16px calc(var(--tab-height) + 32px);
+  padding: 24px 16px calc(var(--tab-height) + 32px + env(safe-area-inset-bottom));
   display: grid;
   gap: 20px;
   align-content: start;
@@ -134,7 +136,7 @@ h3 {
 .tabs {
   position: fixed;
   inset: auto 0 0 0;
-  height: calc(var(--tab-height) + env(safe-area-inset-bottom));
+  min-height: calc(var(--tab-height) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--chalk);
   border-top: 2px solid var(--touchline);
@@ -276,7 +278,6 @@ h3 {
   font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0;
-  opacity: 0.9;
 }
 
 .in-button[data-state="in"] {
@@ -407,9 +408,21 @@ h3 {
   background: color-mix(in srgb, var(--bad) 10%, transparent);
 }
 
-label {
+/* Text that must wrap rather than overflow: long names, group names, tags. */
+h1,
+h2,
+h3,
+.list li,
+.tag {
+  overflow-wrap: anywhere;
+}
+
+.field {
   display: grid;
   gap: 4px;
+}
+
+.field label {
   font-weight: 600;
 }
 
@@ -466,9 +479,22 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .spinner {
-    animation-duration: 3s;
+    animation: none;
   }
   .in-button {
     transition: none;
   }
+}
+
+/* Read by screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

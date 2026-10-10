@@ -35,6 +35,7 @@ async function magicLinkFor(email) {
 async function evidence(error) {
   for (const [name, page] of [["admin", admin], ["player", player]]) {
     await page.screenshot({ path: `${shots}failure-${name}.png`, fullPage: true }).catch(() => {});
+    console.log(`[${name} url] ${page.url().replace(/(access_token|refresh_token)=[^&]+/g, "$1=…")}`);
     const overlay = await page.evaluate(() => document.querySelector("nextjs-portal")?.shadowRoot?.textContent?.slice(0, 600) ?? "").catch(() => "");
     if (overlay) console.log(`[${name} dev overlay] ${overlay.replace(/\s+/g, " ")}`);
   }
@@ -95,9 +96,53 @@ await player.getByRole("button", { name: "Join" }).click();
 await player.getByRole("button", { name: "I'm in", exact: true }).waitFor();
 await player.screenshot({ path: `${shots}08-player-before.png` });
 await player.getByRole("button", { name: "I'm in", exact: true }).click();
-await player.getByText("You're in").waitFor();
+await player.getByRole("button", { name: /You're in/ }).waitFor();
 step("player tapped I'm in");
 await player.screenshot({ path: `${shots}09-player-in.png` });
+
+// 4b. Pulling out asks first, in the page (not a native dialog), and the state is read out.
+await player.getByRole("button", { name: /You're in/ }).click();
+await player.getByRole("group", { name: "Pull out of this game?" }).waitFor();
+await player.getByRole("button", { name: "Stay in" }).click();
+await player.getByRole("status").filter({ hasText: "You're in." }).waitFor();
+step("pull-out asks first, and the state is announced");
+
+// 4c. Page titles change as you move around.
+await player.getByRole("link", { name: "Matches" }).click();
+await player.getByRole("heading", { name: "Matches" }).waitFor();
+if ((await player.title()) !== "Matches · Bibleague") throw new Error(`unexpected title: ${await player.title()}`);
+await player.getByRole("link", { name: "Next match" }).click();
+step("page titles update");
+
+// 4d. Security headers are on.
+const headers = (await fetch(APP)).headers;
+for (const [name, value] of [["referrer-policy", "no-referrer"], ["x-frame-options", "DENY"], ["x-content-type-options", "nosniff"]]) {
+  if (headers.get(name) !== value) throw new Error(`missing header ${name}`);
+}
+step("security headers present");
+
+// 4e. The player keeps their place: adds an email, follows the link, and is the same person, no longer anonymous.
+const stored = () =>
+  player.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith("-auth-token"));
+    const u = key && JSON.parse(localStorage.getItem(key)).user;
+    return u && { id: u.id, anonymous: u.is_anonymous === true, email: u.email };
+  });
+const before = await stored();
+const playerEmail = `player-${Date.now()}@example.test`;
+await player.getByRole("link", { name: "Group" }).click();
+await player.getByRole("heading", { name: "Keep your place" }).waitFor();
+await player.getByLabel("Your email").fill(playerEmail);
+await player.getByRole("button", { name: "Save my place" }).click();
+await player.getByRole("status").filter({ hasText: playerEmail }).waitFor();
+// With email confirmation off (local dev) the address is saved at once; with it on, a link must be opened first.
+if ((await stored()).anonymous) await player.goto(await magicLinkFor(playerEmail));
+await player.goto(`${APP}/`);
+await player.getByRole("button", { name: /You're in/ }).waitFor();
+const after = await stored();
+if (after.id !== before.id) throw new Error("the player became a different user");
+if (after.anonymous || after.email !== playerEmail) throw new Error(`still anonymous: ${JSON.stringify(after)}`);
+step("player saved their place: same user, now has an email, spot kept");
 
 // 5. Organiser sees them in the list.
 await admin.getByRole("link", { name: "Next match" }).click();

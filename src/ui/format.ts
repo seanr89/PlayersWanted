@@ -1,3 +1,5 @@
+import type { MemberRole } from "../app-layer";
+
 /** "Thu 15 Oct, 19:00" in the viewer's own time zone. */
 export function formatWhen(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -23,3 +25,24 @@ export function untilLabel(iso: string, now = Date.now()): string | null {
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   return minutes > 0 ? `${minutes}m` : "Under a minute";
 }
+
+/** How a role is shown to people. */
+export const ROLE_LABEL: Record<MemberRole, string> = { owner: "Owner", admin: "Admin", member: "Player" };
+
+export const POSITION_LABEL = { GK: "Goalkeeper", defender: "Defender", attacker: "Attacker" } as const;
+
+/** What a match's status means to someone looking at the list. */
+export const MATCH_STATUS_LABEL = {
+  scheduled: "RSVPs not open",
+  rsvps_open: "RSVPs open",
+  teams_published: "Teams out",
+  played: "Played",
+  cancelled: "Cancelled",
+} as const;
+
+/** Statuses in which people can still say in or out. */
+export const RSVPS_ACCEPTED = ["rsvps_open", "teams_published"] as const;
+
+/** A link we are willing to put in an `href`: web addresses only, never `javascript:` or similar. */
+export const safeHref = (url: string | null | undefined): string | undefined =>
+  url && /^https?:\/\//i.test(url) ? url : undefined;
