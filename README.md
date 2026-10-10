@@ -66,4 +66,14 @@ local time across daylight-saving changes, and one template failing does not sto
 next week's Match straight away. Edits to a single Match never change the template, and a template edit only changes
 Matches made afterwards (except that an unseen, unmoved next Match is replaced when the night or time changes).
 
-Still to do: the notification interface (at-risk nudge, share messages, push and email).
+Notifications (`src/app-layer/notifications.ts`): commands write events to an outbox table in the same transaction as
+the change (RSVPs opened, Match at risk, Teams published, Teams changed after a fix, Match cancelled). "At risk" fires
+once per downward crossing of the Group's minimum-players threshold and goes to Admins only. A delivery worker calls
+`dispatchNotifications(serviceClient, channels)`: it claims pending events (service role only, at most once each) and hands
+every channel a `Notification` with its recipients. Web push and email are meant to be channels implementing
+`NotificationChannel`; none is built yet, so nothing is sent until a channel is registered. `getShareMessage` gives an
+Admin a prefilled WhatsApp message and `wa.me` link for RSVPs open, at risk and Teams published (no WhatsApp API).
+Functions that only the service role may call must be re-restricted after any migration that re-runs the blanket
+`grant execute ... to authenticated`; a test guards this.
+
+Still to do: real web push and email channels, a worker/route that runs the dispatcher, and the UI.

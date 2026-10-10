@@ -49,3 +49,19 @@ export function localTime(instant: string | Date, timeZone: string): { weekday: 
   const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
   return { weekday, time: `${get("hour")}:${get("minute")}` };
 }
+
+let cachedServiceKey: string | undefined;
+
+/**
+ * A client with the service role, as the delivery worker would use. The key is read from the running local
+ * stack (or SUPABASE_SERVICE_ROLE_KEY) rather than written into the repo.
+ */
+export function serviceClient(): SupabaseClient {
+  if (!cachedServiceKey) {
+    cachedServiceKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ??
+      /SERVICE_ROLE_KEY="?([^"\n]+)"?/.exec(execFileSync("npx", ["supabase", "status", "-o", "env"], { encoding: "utf8" }))?.[1];
+    if (!cachedServiceKey) throw new Error("could not find the local service role key");
+  }
+  return createClient(URL, cachedServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
