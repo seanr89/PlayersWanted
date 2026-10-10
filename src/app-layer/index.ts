@@ -585,3 +585,22 @@ export async function transferOwnership(client: SupabaseClient, toMembershipId: 
 export async function deleteGroup(client: SupabaseClient, groupId: string): Promise<void> {
   await command(client, "delete_group", { p_group: groupId });
 }
+
+/** Edit one Match. Anything left out keeps its current value. */
+export async function updateMatch(
+  client: SupabaseClient,
+  matchId: string,
+  changes: { startsAt?: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date },
+): Promise<void> {
+  await command(client, "update_match", {
+    p_match: matchId,
+    p_starts_at: changes.startsAt?.toISOString() ?? null,
+    p_capacity: changes.capacity ?? null,
+    p_cost: changes.costPerPlayer ?? null,
+    p_rsvp_deadline: changes.rsvpDeadline?.toISOString() ?? null,
+  });
+}
+
+export async function cancelMatch(client: SupabaseClient, matchId: string): Promise<void> {
+  await command(client, "cancel_match", { p_match: matchId });
+}
