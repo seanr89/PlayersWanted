@@ -191,10 +191,14 @@ export async function getMatches(client: SupabaseClient, groupId: string): Promi
   return (data ?? []).map(toMatch);
 }
 
-export async function getMatch(client: SupabaseClient, matchId: string): Promise<MatchSummary> {
+async function fetchMatch(client: SupabaseClient, matchId: string): Promise<Match> {
   const { data, error } = await client.from("matches").select(MATCH_COLUMNS).eq("id", matchId).single();
   if (error) throw new Error(error.message);
-  const match = toMatch(data);
+  return toMatch(data);
+}
+
+export async function getMatch(client: SupabaseClient, matchId: string): Promise<MatchSummary> {
+  const match = await fetchMatch(client, matchId);
   const rsvps = await getMatchRsvps(client, matchId);
   const playing = rsvps.filter((r) => r.status === "playing").length;
   return {
@@ -262,9 +266,7 @@ async function playingPlayers(client: SupabaseClient, match: Match): Promise<Pla
 }
 
 async function rankedSplits(client: SupabaseClient, matchId: string, limit: number) {
-  const { data, error } = await client.from("matches").select(MATCH_COLUMNS).eq("id", matchId).single();
-  if (error) throw new Error(error.message);
-  const match = toMatch(data);
+  const match = await fetchMatch(client, matchId);
   const players = await playingPlayers(client, match);
   if (players.length < 2) throw new Error("at least two players are needed to make teams");
   return generateTeams(players, await getPairRules(client, match.groupId), { limit });
@@ -293,11 +295,11 @@ export async function reshuffleDraftTeams(client: SupabaseClient, matchId: strin
 }
 
 export async function swapPlayers(client: SupabaseClient, matchId: string, a: string, b: string): Promise<void> {
-  const [{ data: rows, error }, { data: team }] = await Promise.all([
+  const [{ data: rows, error }, { data: team, error: teamError }] = await Promise.all([
     client.from("team_players").select("membership_id, side").eq("match_id", matchId),
     client.from("teams").select("rank").eq("match_id", matchId).maybeSingle(),
   ]);
-  if (error) throw new Error(error.message);
+  if (error || teamError) throw new Error((error ?? teamError)!.message);
   const sideOf = new Map((rows ?? []).map((r) => [r.membership_id, r.side]));
   if (!sideOf.has(a) || !sideOf.has(b) || sideOf.get(a) === sideOf.get(b)) {
     throw new Error("pick one player from each team to swap");
@@ -335,4 +337,17 @@ export async function getTeams(client: SupabaseClient, matchId: string): Promise
         displayName: (r.memberships as unknown as { display_name: string }).display_name,
       }));
   return { state: team.state, teamA: side("A"), teamB: side("B") };
+}
+
+export async function setPosition(
+  client: SupabaseClient,
+  membershipId: string,
+  position: "GK" | "defender" | "attacker" | null,
+): Promise<void> {
+  await command(client, "set_position", { p_membership: membershipId, p_position: position });
+}
+
+/** Replaces the invite token, so the old link stops working. */
+export function regenerateInvite(client: SupabaseClient, groupId: string): Promise<string> {
+  return command(client, "regenerate_invite", { p_group: groupId });
 }

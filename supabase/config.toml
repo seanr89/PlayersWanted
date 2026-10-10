@@ -176,6 +176,8 @@ refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
 enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
+# LOCAL DEV ONLY: players join without an account via anonymous sign-in. Before production, keep this on but
+# restore sane rate limits below and add CAPTCHA, since anonymous users hold the full `authenticated` role.
 enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
