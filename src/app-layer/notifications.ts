@@ -80,6 +80,7 @@ interface MessageContext {
 }
 
 const BATCH = 50;
+const DEFAULT_TIME_BUDGET_MS = 45_000;
 const MAX_BATCHES = 1000;
 
 /** Where links point. In production the address must be configured: a localhost link in a message is useless. */
@@ -255,7 +256,7 @@ async function toNotification(service: SupabaseClient, event: ClaimedEvent, base
   return {
     kind: event.kind,
     groupId: event.groupId,
-    groupName: event.groupName,
+    groupName: plain(event.groupName),
     matchId: event.matchId,
     title,
     body,
@@ -272,14 +273,17 @@ async function toNotification(service: SupabaseClient, event: ClaimedEvent, base
 export async function dispatchNotifications(
   service: SupabaseClient,
   channels: NotificationChannel[],
-  options: { appUrl?: string } = {},
+  options: { appUrl?: string; timeBudgetMs?: number } = {},
 ): Promise<DispatchResult> {
   // Claiming events with nowhere to send them would lose them, so refuse before touching the outbox.
   if (channels.length === 0) throw new Error("no delivery channels configured");
   const base = appUrl(options.appUrl);
   const result: DispatchResult = { delivered: 0, skipped: 0, failures: [] };
 
+  const started = Date.now();
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    // Stop claiming once the time is spent; anything left stays pending for the next run.
+    if (Date.now() - started > (options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS)) break;
     const { data, error } = await service.rpc("claim_pending_notifications", { p_limit: BATCH });
     if (error) throw new Error(error.message);
     const events = data as ClaimedEvent[];

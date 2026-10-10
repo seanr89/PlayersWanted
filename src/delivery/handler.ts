@@ -40,9 +40,12 @@ export async function handleDispatchRequest(request: Request, env: WorkerEnv, de
     for (const failure of result.failures) {
       console.error(`notification ${failure.eventId} failed on ${failure.channel}: ${failure.error}`);
     }
-    return json({ delivered: result.delivered, skipped: result.skipped, failed: result.failures.length }, 200);
+    // 502 when anything failed, so a scheduler can alert; the counts are the same either way.
+    const body = { delivered: result.delivered, skipped: result.skipped, failed: result.failures.length };
+    return json(body, result.failures.length > 0 ? 502 : 200);
   } catch (e) {
-    console.error("notification dispatch failed", e);
+    // Only the message: an error object can carry the input that caused it (such as an SMTP address with a password).
+    console.error("notification dispatch failed:", e instanceof Error ? e.message : "unknown error");
     return json({ error: "dispatch failed" }, 500);
   }
 }

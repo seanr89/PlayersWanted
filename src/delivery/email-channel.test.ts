@@ -95,12 +95,18 @@ describe("EmailChannel", () => {
       ["bad@x.test"],
     );
 
-    const failure = await channel.send(notification([recipient(1), recipient(2), recipient(3)])).catch((e: Error) => e);
+    const sending = channel.send(notification([recipient(1), recipient(2), recipient(3)]));
 
+    await expect(sending).rejects.toThrow(/^1 of 3 emails failed$/); // a count, never an address
     expect(sent.map((m) => m.to).sort()).toEqual(["one@x.test", "three@x.test"]);
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/1 of 3 emails failed/);
-    expect((failure as Error).message).not.toContain("x.test");
+  });
+
+  it("sends to one address only: a value that would parse as several is not sent", async () => {
+    const { channel, sent } = fixture({ "user-1": "victim@x.test, attacker@evil.test", "user-2": "ok@x.test" });
+
+    await expect(channel.send(notification([recipient(1), recipient(2)]))).rejects.toThrow(/1 of 2 emails failed/);
+
+    expect(sent.map((m) => m.to)).toEqual(["ok@x.test"]);
   });
 
   it("looks each account up once, even if listed twice", async () => {

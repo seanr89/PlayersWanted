@@ -12,6 +12,9 @@ export interface EmailChannelDeps {
   lookupEmail: (authUserId: string) => Promise<string | null>;
 }
 
+/** One plain address: nothing that nodemailer could read as a list, a display name or a group. */
+const SINGLE_ADDRESS = /^[^\s,;<>"'()[\]\\]+@[^\s,;<>"'()[\]\\]+$/;
+
 /**
  * Sends each recipient their own plain-text email. Nobody else's address or name appears in it. People without an
  * email address are skipped; a failing address does not stop the rest, and the failure is reported as a count
@@ -38,6 +41,10 @@ export class EmailChannel implements NotificationChannel {
       }
       if (!address) continue;
       attempted++;
+      if (!SINGLE_ADDRESS.test(address)) {
+        failed++;
+        continue;
+      }
       try {
         await this.deps.mailer.sendMail({
           from: this.deps.from,

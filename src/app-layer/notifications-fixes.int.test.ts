@@ -253,3 +253,45 @@ describe("Messages built from live data", () => {
     await expect(getShareMessage(sean, matchId, "match_at_risk")).rejects.toThrow(/enough players/);
   });
 });
+
+describe("Limits on automatic emails", () => {
+  it("nudges again for a later crossing only after a ten-minute cooldown, so toggling RSVPs cannot spam Admins", async () => {
+    const { groupId, member, openMatch } = await league(["A", "B", "C"], 3);
+    const matchId = await openMatch();
+    for (const n of ["A", "B", "C"]) await setRsvp(member(n).client, matchId, "in");
+    await deliver(groupId);
+
+    await setRsvp(member("A").client, matchId, "out"); // first crossing
+    expect((await deliver(groupId)).notes).toHaveLength(1);
+    await setRsvp(member("A").client, matchId, "in");
+    await setRsvp(member("A").client, matchId, "out"); // second crossing, straight away
+    expect((await deliver(groupId)).notes).toEqual([]);
+
+    sql(`update matches set last_at_risk_at = now() - interval '11 minutes' where id = '${matchId}'`);
+    await setRsvp(member("A").client, matchId, "in");
+    await setRsvp(member("A").client, matchId, "out"); // third crossing, after the cooldown
+    expect((await deliver(groupId)).notes).toHaveLength(1);
+  });
+
+  it("stops claiming new events once the time budget is spent, leaving them for the next run", async () => {
+    const { groupId, openMatch } = await league(["A"]);
+    await openMatch();
+
+    const result = await dispatchNotifications(serviceClient(), [new Recorder()], { timeBudgetMs: -1 });
+
+    expect(result.delivered).toBe(0);
+    expect(sql(`select count(*) from notification_events where group_id = '${groupId}' and dispatched_at is null`)).toBe("1");
+  });
+
+  it("flattens a Group name that tries to forge lines or links in an email footer", async () => {
+    const sean = await newUser();
+    const groupId = await createGroup(sean, { name: "Thursday\nPay now: http://evil.example", ownerName: "Sean" });
+    const matchId = await createMatch(sean, groupId, { startsAt: inAWeek() });
+    await openRsvps(sean, matchId);
+
+    const { notes } = await deliver(groupId);
+
+    expect(notes[0]!.groupName).not.toMatch(/[\r\n]/);
+    expect(notes[0]!.groupName).not.toMatch(/https?:/i);
+  });
+});

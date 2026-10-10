@@ -119,7 +119,7 @@ describe("RSVPs open", () => {
 });
 
 describe("Match at risk", () => {
-  it("nudges Admins once each time the in-count drops below the minimum", async () => {
+  it("nudges Admins once per drop below the minimum, and not again within ten minutes", async () => {
     const { groupId, member, openMatch } = await league(["A", "B", "C", "D"], { minPlayers: 3 });
     const matchId = await openMatch();
     await deliver(groupId); // the RSVPs-open announcement
@@ -141,8 +141,8 @@ describe("Match at risk", () => {
     expect(await deliver(groupId)).toEqual([]);
     await setRsvp(member("B").client, matchId, "out"); // A, C, D = 3: still at the minimum
     expect(await deliver(groupId)).toEqual([]);
-    await setRsvp(member("A").client, matchId, "out"); // C, D = 2: a second crossing
-    expect(await deliver(groupId)).toHaveLength(1);
+    await setRsvp(member("A").client, matchId, "out"); // C, D = 2: a second crossing, but within the cooldown
+    expect(await deliver(groupId)).toEqual([]);
   });
 
   it("does not nudge about a Match that never reached the minimum", async () => {
