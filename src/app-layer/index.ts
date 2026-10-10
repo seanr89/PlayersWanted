@@ -58,3 +58,37 @@ export async function getSquad(client: SupabaseClient, groupId: string): Promise
     };
   });
 }
+
+export interface Invite {
+  groupName: string;
+  ghosts: { id: string; displayName: string }[];
+}
+
+export function getInviteToken(client: SupabaseClient, groupId: string): Promise<string> {
+  return command(client, "get_invite_token", { p_group: groupId });
+}
+
+export function getInvite(client: SupabaseClient, token: string): Promise<Invite> {
+  return command(client, "get_invite", { p_token: token });
+}
+
+/** Join with a new Membership, or pass `claim` to take a ghost profile (pending admin confirmation). */
+export function joinGroup(
+  client: SupabaseClient,
+  token: string,
+  args: { name: string; claim?: string },
+): Promise<string> {
+  return command(client, "join_group", { p_token: token, p_name: args.name, p_claim: args.claim ?? null });
+}
+
+export async function confirmClaim(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "confirm_claim", { p_membership: membershipId });
+}
+
+export async function rejectClaim(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "reject_claim", { p_membership: membershipId });
+}
+
+export async function getPendingClaims(client: SupabaseClient, groupId: string): Promise<SquadMember[]> {
+  return (await getSquad(client, groupId)).filter((m) => m.claim === "pending");
+}
