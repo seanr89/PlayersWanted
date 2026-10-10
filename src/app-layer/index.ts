@@ -101,6 +101,13 @@ export async function getPendingClaims(client: SupabaseClient, groupId: string):
   return (await getSquad(client, groupId)).filter((m) => m.claim === "pending");
 }
 
+export interface VenueSummary {
+  id: string;
+  name: string;
+  address: string | null;
+  mapsUrl: string | null;
+}
+
 export type MatchStatus = "scheduled" | "rsvps_open" | "teams_published" | "played" | "cancelled";
 
 export interface Match {
@@ -111,6 +118,7 @@ export interface Match {
   costPerPlayer: number;
   rsvpDeadline: string | null;
   status: MatchStatus;
+  venue: VenueSummary | null;
 }
 
 export interface MatchSummary extends Match {
@@ -130,7 +138,8 @@ export interface MatchRsvp {
   isGuest: boolean;
 }
 
-const MATCH_COLUMNS = "id, group_id, starts_at, capacity, cost_per_player, rsvp_deadline, status";
+const MATCH_COLUMNS =
+  "id, group_id, starts_at, capacity, cost_per_player, rsvp_deadline, status, venues(id, name, address, maps_url)";
 
 function toMatch(row: Record<string, any>): Match {
   return {
@@ -141,20 +150,24 @@ function toMatch(row: Record<string, any>): Match {
     costPerPlayer: Number(row.cost_per_player),
     rsvpDeadline: row.rsvp_deadline,
     status: row.status,
+    venue: row.venues
+      ? { id: row.venues.id, name: row.venues.name, address: row.venues.address, mapsUrl: row.venues.maps_url }
+      : null,
   };
 }
 
 export function createMatch(
   client: SupabaseClient,
   groupId: string,
-  args: { startsAt: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date },
+  args: { startsAt: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date; venueId?: string },
 ): Promise<string> {
   return command(client, "create_match", {
     p_group: groupId,
     p_starts_at: args.startsAt.toISOString(),
     p_capacity: args.capacity ?? 10,
-    p_cost: args.costPerPlayer ?? 0,
+    p_cost: args.costPerPlayer ?? null, // null: use the Venue's default cost
     p_rsvp_deadline: args.rsvpDeadline?.toISOString() ?? null,
+    p_venue: args.venueId ?? null,
   });
 }
 
@@ -675,4 +688,62 @@ export async function leaveGroup(client: SupabaseClient, groupId: string): Promi
 /** Erase the Person and anonymise their history in every Group. */
 export async function deleteAccount(client: SupabaseClient): Promise<void> {
   await command(client, "delete_account", {});
+}
+
+export interface Venue extends VenueSummary {
+  defaultCost: number;
+}
+
+export function createVenue(
+  client: SupabaseClient,
+  groupId: string,
+  venue: { name: string; address?: string; mapsUrl?: string; defaultCost?: number },
+): Promise<string> {
+  return command(client, "create_venue", {
+    p_group: groupId,
+    p_name: venue.name,
+    p_address: venue.address ?? null,
+    p_maps_url: venue.mapsUrl ?? null,
+    p_default_cost: venue.defaultCost ?? 0,
+  });
+}
+
+/** Use the saved Venue with this name (ignoring case and spacing), or save it as new. */
+export function findOrCreateVenue(client: SupabaseClient, groupId: string, name: string): Promise<string> {
+  return command(client, "find_or_create_venue", { p_group: groupId, p_name: name });
+}
+
+export async function updateVenue(
+  client: SupabaseClient,
+  venueId: string,
+  changes: { name?: string; address?: string; mapsUrl?: string; defaultCost?: number },
+): Promise<void> {
+  await command(client, "update_venue", {
+    p_venue: venueId,
+    p_name: changes.name ?? null,
+    p_address: changes.address ?? null,
+    p_maps_url: changes.mapsUrl ?? null,
+    p_default_cost: changes.defaultCost ?? null,
+  });
+}
+
+export async function getVenues(client: SupabaseClient, groupId: string): Promise<Venue[]> {
+  const { data, error } = await client
+    .from("venues")
+    .select("id, name, address, maps_url, default_cost")
+    .eq("group_id", groupId)
+    .order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((v) => ({
+    id: v.id,
+    name: v.name,
+    address: v.address,
+    mapsUrl: v.maps_url,
+    defaultCost: Number(v.default_cost),
+  }));
+}
+
+/** Set a Match's Venue, or pass null to clear it. */
+export async function setMatchVenue(client: SupabaseClient, matchId: string, venueId: string | null): Promise<void> {
+  await command(client, "set_match_venue", { p_match: matchId, p_venue: venueId });
 }
