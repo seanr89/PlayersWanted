@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { generateTeams, type Player, type Rules } from "../team-generator";
+import { generateTeams, scoreSplit, type Player, type Rules } from "../team-generator";
 
 /**
  * The application layer: the only way the UI changes state or reads Group data.
@@ -27,6 +27,11 @@ export interface SquadMember {
   rating?: number;
 }
 
+export async function isAdmin(client: SupabaseClient, groupId: string): Promise<boolean> {
+  const { data } = await client.rpc("is_group_admin", { p_group: groupId });
+  return data === true;
+}
+
 export function createGroup(client: SupabaseClient, args: { name: string; ownerName: string }): Promise<string> {
   return command(client, "create_group", { p_name: args.name, p_owner_name: args.ownerName });
 }
@@ -44,6 +49,7 @@ export async function getSquad(client: SupabaseClient, groupId: string): Promise
     .from("memberships")
     .select("id, display_name, role, claim, position, happy_in_goal, created_at, membership_ratings(rating)")
     .eq("group_id", groupId)
+    .is("guest_match_id", null)
     .order("created_at");
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => {
@@ -120,6 +126,7 @@ export interface MatchRsvp {
   waitlistPosition?: number;
   /** Present only for Admins. */
   lateDropout?: boolean;
+  isGuest: boolean;
 }
 
 const MATCH_COLUMNS = "id, group_id, starts_at, capacity, cost_per_player, rsvp_deadline, status";
@@ -176,6 +183,7 @@ export async function getMatchRsvps(client: SupabaseClient, matchId: string): Pr
     displayName: row.display_name,
     response: row.response,
     status: row.status,
+    isGuest: row.is_guest,
     ...(row.waitlist_position === null ? {} : { waitlistPosition: row.waitlist_position }),
     ...(row.late_dropout === null ? {} : { lateDropout: row.late_dropout }),
   }));
@@ -209,6 +217,9 @@ export async function getMatch(client: SupabaseClient, matchId: string): Promise
   };
 }
 
+/** Which Team a player is on. */
+export type Side = "A" | "B";
+
 export interface TeamPlayer {
   membershipId: string;
   displayName: string;
@@ -216,6 +227,8 @@ export interface TeamPlayer {
 
 export interface MatchTeams {
   state: "draft" | "published";
+  /** Bumped each time published Teams change after a confirmed fix. */
+  revision: number;
   teamA: TeamPlayer[];
   teamB: TeamPlayer[];
 }
@@ -248,12 +261,17 @@ async function getPairRules(client: SupabaseClient, groupId: string): Promise<Ru
   return { together: pairs("together"), apart: pairs("apart") };
 }
 
-/** The playing players with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
-async function playingPlayers(client: SupabaseClient, match: Match): Promise<Player[]> {
-  const [rsvps, squad] = await Promise.all([getMatchRsvps(client, match.id), getSquad(client, match.groupId)]);
-  const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
-  return squad
-    .filter((m) => playing.has(m.id))
+/** Mean Rating of the Squad, rounded: what an unrated Guest is assumed to be worth. */
+function averageRating(squad: SquadMember[]): number {
+  const ratings = squad.flatMap((m) => (m.rating === undefined ? [] : [m.rating]));
+  return ratings.length === 0 ? 50 : Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+}
+
+/** The given players (Squad members and Guests) with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
+async function ratedPlayers(client: SupabaseClient, match: Match, ids: Set<string>): Promise<Player[]> {
+  const [squad, guests] = await Promise.all([getSquad(client, match.groupId), getGuests(client, match.id)]);
+  const members = squad
+    .filter((m) => ids.has(m.id))
     .map((m) => {
       if (m.rating === undefined) throw new Error("only an admin can generate teams");
       return {
@@ -263,6 +281,18 @@ async function playingPlayers(client: SupabaseClient, match: Match): Promise<Pla
         ...(m.position ? { position: m.position } : {}),
       };
     });
+  const guestPlayers = guests
+    .filter((g) => ids.has(g.id))
+    .map((g) => {
+      if (g.effectiveRating === undefined) throw new Error("only an admin can generate teams");
+      return { id: g.id, rating: g.effectiveRating };
+    });
+  return [...members, ...guestPlayers];
+}
+
+async function playingPlayers(client: SupabaseClient, match: Match): Promise<Player[]> {
+  const rsvps = await getMatchRsvps(client, match.id);
+  return ratedPlayers(client, match, new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId)));
 }
 
 async function rankedSplits(client: SupabaseClient, matchId: string, limit: number) {
@@ -321,7 +351,7 @@ export async function publishTeams(client: SupabaseClient, matchId: string): Pro
 
 /** The Teams this user is allowed to see: null if none are visible (e.g. a draft, for a player). */
 export async function getTeams(client: SupabaseClient, matchId: string): Promise<MatchTeams | null> {
-  const { data: team, error } = await client.from("teams").select("state").eq("match_id", matchId).maybeSingle();
+  const { data: team, error } = await client.from("teams").select("state, revision").eq("match_id", matchId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!team) return null;
   const { data, error: playersError } = await client
@@ -329,14 +359,14 @@ export async function getTeams(client: SupabaseClient, matchId: string): Promise
     .select("side, membership_id, memberships(display_name)")
     .eq("match_id", matchId);
   if (playersError) throw new Error(playersError.message);
-  const side = (which: "A" | "B") =>
+  const side = (which: Side) =>
     (data ?? [])
       .filter((r) => r.side === which)
       .map((r) => ({
         membershipId: r.membership_id,
         displayName: (r.memberships as unknown as { display_name: string }).display_name,
       }));
-  return { state: team.state, teamA: side("A"), teamB: side("B") };
+  return { state: team.state, revision: team.revision, teamA: side("A"), teamB: side("B") };
 }
 
 export async function setPosition(
@@ -350,4 +380,148 @@ export async function setPosition(
 /** Replaces the invite token, so the old link stops working. */
 export function regenerateInvite(client: SupabaseClient, groupId: string): Promise<string> {
   return command(client, "regenerate_invite", { p_group: groupId });
+}
+
+export interface Guest {
+  id: string;
+  displayName: string;
+  sponsorName: string | null;
+  /** Admin-only: set by an Admin, otherwise absent. */
+  rating?: number;
+  /** Admin-only: the Rating team generation will use (the Group average until an Admin sets one). */
+  effectiveRating?: number;
+}
+
+/** Add a Guest to a Match: takes a Capacity slot, or a Waitlist place if the Match is full. */
+export function addGuest(client: SupabaseClient, matchId: string, name: string): Promise<string> {
+  return command(client, "add_guest", { p_match: matchId, p_name: name });
+}
+
+export async function removeGuest(client: SupabaseClient, guestId: string): Promise<void> {
+  await command(client, "remove_guest", { p_guest: guestId });
+}
+
+export async function promoteGuest(client: SupabaseClient, guestId: string): Promise<void> {
+  await command(client, "promote_guest", { p_guest: guestId });
+}
+
+export async function getGuests(client: SupabaseClient, matchId: string): Promise<Guest[]> {
+  const match = await fetchMatch(client, matchId);
+  const { data, error } = await client
+    .from("memberships")
+    .select("id, display_name, sponsor:sponsor_membership_id(display_name), membership_ratings(rating)")
+    .eq("guest_match_id", matchId)
+    .order("created_at");
+  if (error) throw new Error(error.message);
+  const average = (await isAdmin(client, match.groupId)) ? averageRating(await getSquad(client, match.groupId)) : undefined;
+  return (data ?? []).map((row) => {
+    const rating = (row.membership_ratings as unknown as { rating: number } | null)?.rating;
+    return {
+      id: row.id,
+      displayName: row.display_name,
+      sponsorName: (row.sponsor as unknown as { display_name: string } | null)?.display_name ?? null,
+      ...(rating === undefined ? {} : { rating }),
+      ...(average === undefined ? {} : { effectiveRating: rating ?? average }),
+    };
+  });
+}
+
+export interface FixProposal {
+  /** Identifies this proposal, so a dismissed one is not offered again. */
+  key: string;
+  /** Players on the published Teams who are no longer in. */
+  vacated: TeamPlayer[];
+  /** Waitlisted players taking a vacated slot (first in the queue first), on the side they join. */
+  promoted: (TeamPlayer & { side: Side })[];
+  /** Players switching Team to rebalance (only when the Waitlist cannot fill every vacated slot). */
+  moved: (TeamPlayer & { from: Side; to: Side })[];
+  /** The Teams as they would be after the fix. */
+  teamA: TeamPlayer[];
+  teamB: TeamPlayer[];
+  balance: number;
+}
+
+/**
+ * After a dropout from published Teams: promote the first waitlisted player into each vacated slot; if the
+ * Waitlist runs out, move the fewest players needed to rebalance. Null when nobody has dropped out, or the
+ * Admin dismissed this exact proposal. Nothing changes until `confirmFix`.
+ */
+export async function getProposedFix(client: SupabaseClient, matchId: string): Promise<FixProposal | null> {
+  const match = await fetchMatch(client, matchId);
+  if (!(await isAdmin(client, match.groupId))) throw new Error("only an admin can see proposed fixes");
+  if (match.status !== "teams_published") return null;
+
+  const [teams, rsvps, dismissed] = await Promise.all([
+    getTeams(client, matchId),
+    getMatchRsvps(client, matchId),
+    client.from("teams").select("dismissed_fix_key").eq("match_id", matchId).maybeSingle(),
+  ]);
+  if (!teams) return null;
+  const rsvpOf = new Map(rsvps.map((r) => [r.membershipId, r]));
+  const onTeams = [
+    ...teams.teamA.map((p) => ({ ...p, side: "A" as Side })),
+    ...teams.teamB.map((p) => ({ ...p, side: "B" as Side })),
+  ];
+  const vacated = onTeams.filter((p) => rsvpOf.get(p.membershipId)?.status !== "playing");
+  if (vacated.length === 0) return null;
+
+  const queue = rsvps
+    .filter((r) => r.status === "waitlist")
+    .sort((x, y) => x.waitlistPosition! - y.waitlistPosition!);
+  const promoted = vacated.slice(0, queue.length).map((slot, i) => ({
+    membershipId: queue[i]!.membershipId,
+    displayName: queue[i]!.displayName,
+    side: slot.side,
+  }));
+  const working = [...onTeams.filter((p) => !vacated.includes(p)), ...promoted];
+  const sideOf = new Map(working.map((p) => [p.membershipId, p.side]));
+  const unfilled = vacated.length - promoted.length;
+
+  const players = await ratedPlayers(client, match, new Set(sideOf.keys()));
+  const rules = await getPairRules(client, match.groupId);
+  const idsOn = (side: Side) => working.filter((p) => p.side === side).map((p) => p.membershipId);
+  let teamA = idsOn("A");
+  let teamB = idsOn("B");
+  const moved: FixProposal["moved"] = [];
+  if (unfilled > 0 && players.length >= 2) {
+    const [best] = generateTeams(players, rules, { keepCloseTo: { teamA, teamB }, limit: 1 });
+    teamA = best!.teamA;
+    teamB = best!.teamB;
+    for (const p of working) {
+      const to = teamA.includes(p.membershipId) ? "A" : "B";
+      if (to !== p.side) moved.push({ membershipId: p.membershipId, displayName: p.displayName, from: p.side, to });
+    }
+  }
+
+  const name = new Map([...onTeams, ...promoted].map((p) => [p.membershipId, p.displayName]));
+  const person = (id: string): TeamPlayer => ({ membershipId: id, displayName: name.get(id)! });
+  const key = [
+    vacated.map((p) => p.membershipId).sort().join(","),
+    promoted.map((p) => p.membershipId).sort().join(","),
+  ].join(">");
+  if (dismissed.data?.dismissed_fix_key === key) return null;
+
+  return {
+    key,
+    vacated: vacated.map(({ membershipId, displayName }) => ({ membershipId, displayName })),
+    // A rebalance can move a player who was just promoted, so report where they end up.
+    promoted: promoted.map((p) => ({ ...p, side: teamA.includes(p.membershipId) ? ("A" as const) : ("B" as const) })),
+    moved,
+    teamA: teamA.map(person),
+    teamB: teamB.map(person),
+    balance: scoreSplit(players, rules, teamA, teamB).balance,
+  };
+}
+
+/** Apply a proposed fix. The database re-checks it, so a hand-edited fix that skips the Waitlist is refused. */
+export async function confirmFix(client: SupabaseClient, matchId: string, fix: FixProposal): Promise<void> {
+  await command(client, "confirm_fix", {
+    p_match: matchId,
+    p_team_a: fix.teamA.map((p) => p.membershipId),
+    p_team_b: fix.teamB.map((p) => p.membershipId),
+  });
+}
+
+export async function dismissFix(client: SupabaseClient, matchId: string, fix: FixProposal): Promise<void> {
+  await command(client, "dismiss_fix", { p_match: matchId, p_key: fix.key });
 }
