@@ -44,6 +44,7 @@ export async function getSquad(client: SupabaseClient, groupId: string): Promise
     .from("memberships")
     .select("id, display_name, role, claim, position, happy_in_goal, created_at, membership_ratings(rating)")
     .eq("group_id", groupId)
+    .is("guest_match_id", null)
     .order("created_at");
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => {
@@ -120,6 +121,7 @@ export interface MatchRsvp {
   waitlistPosition?: number;
   /** Present only for Admins. */
   lateDropout?: boolean;
+  isGuest: boolean;
 }
 
 const MATCH_COLUMNS = "id, group_id, starts_at, capacity, cost_per_player, rsvp_deadline, status";
@@ -176,6 +178,7 @@ export async function getMatchRsvps(client: SupabaseClient, matchId: string): Pr
     displayName: row.display_name,
     response: row.response,
     status: row.status,
+    isGuest: row.is_guest,
     ...(row.waitlist_position === null ? {} : { waitlistPosition: row.waitlist_position }),
     ...(row.late_dropout === null ? {} : { lateDropout: row.late_dropout }),
   }));
@@ -248,11 +251,21 @@ async function getPairRules(client: SupabaseClient, groupId: string): Promise<Ru
   return { together: pairs("together"), apart: pairs("apart") };
 }
 
-/** The playing players with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
+/** Mean Rating of the Squad, rounded: what an unrated Guest is assumed to be worth. */
+function averageRating(squad: SquadMember[]): number {
+  const ratings = squad.flatMap((m) => (m.rating === undefined ? [] : [m.rating]));
+  return ratings.length === 0 ? 50 : Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+}
+
+/** The playing players (Squad members and Guests) with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
 async function playingPlayers(client: SupabaseClient, match: Match): Promise<Player[]> {
-  const [rsvps, squad] = await Promise.all([getMatchRsvps(client, match.id), getSquad(client, match.groupId)]);
+  const [rsvps, squad, guests] = await Promise.all([
+    getMatchRsvps(client, match.id),
+    getSquad(client, match.groupId),
+    getGuests(client, match.id),
+  ]);
   const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
-  return squad
+  const members = squad
     .filter((m) => playing.has(m.id))
     .map((m) => {
       if (m.rating === undefined) throw new Error("only an admin can generate teams");
@@ -263,6 +276,13 @@ async function playingPlayers(client: SupabaseClient, match: Match): Promise<Pla
         ...(m.position ? { position: m.position } : {}),
       };
     });
+  const guestPlayers = guests
+    .filter((g) => playing.has(g.id))
+    .map((g) => {
+      if (g.effectiveRating === undefined) throw new Error("only an admin can generate teams");
+      return { id: g.id, rating: g.effectiveRating };
+    });
+  return [...members, ...guestPlayers];
 }
 
 async function rankedSplits(client: SupabaseClient, matchId: string, limit: number) {
@@ -350,4 +370,49 @@ export async function setPosition(
 /** Replaces the invite token, so the old link stops working. */
 export function regenerateInvite(client: SupabaseClient, groupId: string): Promise<string> {
   return command(client, "regenerate_invite", { p_group: groupId });
+}
+
+export interface Guest {
+  id: string;
+  displayName: string;
+  sponsorName: string | null;
+  /** Admin-only: set by an Admin, otherwise absent. */
+  rating?: number;
+  /** Admin-only: the Rating team generation will use (the Group average until an Admin sets one). */
+  effectiveRating?: number;
+}
+
+/** Add a Guest to a Match: takes a Capacity slot, or a Waitlist place if the Match is full. */
+export function addGuest(client: SupabaseClient, matchId: string, name: string): Promise<string> {
+  return command(client, "add_guest", { p_match: matchId, p_name: name });
+}
+
+export async function removeGuest(client: SupabaseClient, guestId: string): Promise<void> {
+  await command(client, "remove_guest", { p_guest: guestId });
+}
+
+export async function promoteGuest(client: SupabaseClient, guestId: string): Promise<void> {
+  await command(client, "promote_guest", { p_guest: guestId });
+}
+
+export async function getGuests(client: SupabaseClient, matchId: string): Promise<Guest[]> {
+  const match = await fetchMatch(client, matchId);
+  const { data, error } = await client
+    .from("memberships")
+    .select("id, display_name, sponsor:sponsor_membership_id(display_name), membership_ratings(rating)")
+    .eq("guest_match_id", matchId)
+    .order("created_at");
+  if (error) throw new Error(error.message);
+  const { data: isAdmin } = await client.rpc("is_group_admin", { p_group: match.groupId });
+  const average = isAdmin ? averageRating(await getSquad(client, match.groupId)) : undefined;
+  return (data ?? []).map((row) => {
+    const rating = (row.membership_ratings as unknown as { rating: number } | null)?.rating;
+    return {
+      id: row.id,
+      displayName: row.display_name,
+      sponsorName: (row.sponsor as unknown as { display_name: string } | null)?.display_name ?? null,
+      ...(rating === undefined ? {} : { rating }),
+      ...(average === undefined ? {} : { effectiveRating: rating ?? average }),
+    };
+  });
 }

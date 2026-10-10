@@ -12,3 +12,9 @@ export async function newUser(): Promise<SupabaseClient> {
   if (error) throw error;
   return client;
 }
+
+export const inAWeek = () => new Date(Date.now() + 7 * 24 * 3600 * 1000);
+
+/** Index rows by display name, for readable assertions about who is playing or queued. */
+export const byName = <T extends { displayName: string }>(rows: T[]): Record<string, T> =>
+  Object.fromEntries(rows.map((r) => [r.displayName, r]));
