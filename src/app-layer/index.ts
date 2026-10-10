@@ -586,11 +586,11 @@ export async function deleteGroup(client: SupabaseClient, groupId: string): Prom
   await command(client, "delete_group", { p_group: groupId });
 }
 
-/** Edit one Match. Anything left out keeps its current value. */
+/** Edit one Match. Anything left out keeps its current value; `rsvpDeadline: null` removes the deadline. */
 export async function updateMatch(
   client: SupabaseClient,
   matchId: string,
-  changes: { startsAt?: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date },
+  changes: { startsAt?: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date | null },
 ): Promise<void> {
   await command(client, "update_match", {
     p_match: matchId,
@@ -598,6 +598,7 @@ export async function updateMatch(
     p_capacity: changes.capacity ?? null,
     p_cost: changes.costPerPlayer ?? null,
     p_rsvp_deadline: changes.rsvpDeadline?.toISOString() ?? null,
+    p_clear_deadline: changes.rsvpDeadline === null,
   });
 }
 

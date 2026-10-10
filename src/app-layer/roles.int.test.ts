@@ -24,7 +24,7 @@ async function thursday() {
   const priyaId = await joinGroup(priya, token, { name: "Priya" });
   const mo = await newUser();
   const moId = await joinGroup(mo, token, { name: "Mo" });
-  return { sean, groupId, token, priya, priyaId, mo, moId };
+  return { sean, groupId, priya, priyaId, mo, moId };
 }
 
 describe("Group settings", () => {
@@ -51,8 +51,8 @@ describe("Group settings", () => {
     const { sean, priya, groupId } = await thursday();
 
     await expect(updateGroup(priya, groupId, { name: "Hijacked" })).rejects.toThrow(/only an admin/);
-    await expect(updateGroup(sean, groupId, { minPlayers: 0 })).rejects.toThrow();
-    await expect(updateGroup(sean, groupId, { name: "   " })).rejects.toThrow();
+    await expect(updateGroup(sean, groupId, { minPlayers: 0 })).rejects.toThrow(/min_players/);
+    await expect(updateGroup(sean, groupId, { name: "   " })).rejects.toThrow(/check constraint/);
     expect((await getGroup(sean, groupId)).name).toBe("Thursday");
   });
 
@@ -78,7 +78,7 @@ describe("Group settings", () => {
 describe("Admins", () => {
   it("lets the Owner promote a member, who then has organiser powers", async () => {
     const { sean, priya, priyaId, groupId } = await thursday();
-    await expect(addGhost(priya, groupId, "Dave")).rejects.toThrow();
+    await expect(addGhost(priya, groupId, "Dave")).rejects.toThrow(/only an admin/);
 
     await promoteToAdmin(sean, priyaId);
 
@@ -92,7 +92,7 @@ describe("Admins", () => {
 
     await demoteAdmin(sean, priyaId);
 
-    await expect(addGhost(priya, groupId, "Dave")).rejects.toThrow();
+    await expect(addGhost(priya, groupId, "Dave")).rejects.toThrow(/only an admin/);
   });
 
   it("stops anyone but the Owner changing who is an Admin", async () => {
@@ -111,7 +111,7 @@ describe("Admins", () => {
     const ownerRow = squad.find((m) => m.role === "owner")!;
 
     await expect(promoteToAdmin(sean, ghost)).rejects.toThrow(/confirmed member/);
-    await expect(promoteToAdmin(sean, ownerRow.id)).rejects.toThrow();
+    await expect(promoteToAdmin(sean, ownerRow.id)).rejects.toThrow(/regular member/);
   });
 
   it("never lets the Owner be demoted", async () => {

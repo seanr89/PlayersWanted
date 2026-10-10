@@ -77,7 +77,9 @@ describe("Editing a single Match", () => {
     await generateDraftTeams(sean, matchId);
     await publishTeams(sean, matchId);
 
-    await updateMatch(sean, matchId, { startsAt: new Date(Date.now() + 9 * 24 * 3600 * 1000) });
+    const rescheduled = new Date(Date.now() + 9 * 24 * 3600 * 1000);
+    await updateMatch(sean, matchId, { startsAt: rescheduled });
+    expect(new Date((await getMatch(sean, matchId)).startsAt).getTime()).toBe(rescheduled.getTime());
     await expect(updateMatch(sean, matchId, { capacity: 3 })).rejects.toThrow(/capacity/i);
   });
 });
@@ -99,8 +101,8 @@ describe("Cancelling a Match", () => {
     const matchId = await createMatch(sean, groupId, { startsAt: inAWeek() });
     await cancelMatch(sean, matchId);
 
-    await expect(cancelMatch(sean, matchId)).rejects.toThrow(/already cancelled|cannot be cancelled/i);
+    await expect(cancelMatch(sean, matchId)).rejects.toThrow(/already cancelled/);
     await expect(updateMatch(sean, matchId, { costPerPlayer: 1 })).rejects.toThrow(/cancelled|played/i);
-    await expect(openRsvps(sean, matchId)).rejects.toThrow();
+    await expect(openRsvps(sean, matchId)).rejects.toThrow(/scheduled match/);
   });
 });

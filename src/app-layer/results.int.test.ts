@@ -4,11 +4,13 @@ import {
   addGuest,
   createGroup,
   createMatch,
+  dismissFix,
   generateDraftTeams,
   getAttendanceBoard,
   getInviteToken,
   getMatch,
   getOwnRecord,
+  getProposedFix,
   getResult,
   getTeams,
   joinGroup,
@@ -19,6 +21,8 @@ import {
   setRsvp,
 } from "./index";
 import { inAWeek, newUser } from "./test-support";
+
+const anHourAgo = () => new Date(Date.now() - 3600_000);
 
 interface Player {
   client: SupabaseClient;
@@ -39,7 +43,7 @@ async function league(names: string[]) {
   }
 
   async function publishedMatch(playing = names) {
-    const matchId = await createMatch(sean, groupId, { startsAt: inAWeek(), capacity: playing.length });
+    const matchId = await createMatch(sean, groupId, { startsAt: anHourAgo(), capacity: playing.length });
     await openRsvps(sean, matchId);
     for (const name of playing) await setRsvp(players[name]!.client, matchId, "in");
     await generateDraftTeams(sean, matchId);
@@ -82,7 +86,7 @@ describe("Recording a Result", () => {
 
     await expect(recordResult(sean, unpublished, { scoreA: 1, scoreB: 0 })).rejects.toThrow(/published teams/);
     await expect(recordResult(players.A!.client, matchId, { scoreA: 1, scoreB: 0 })).rejects.toThrow(/only an admin/);
-    await expect(recordResult(sean, matchId, { scoreA: -1, scoreB: 0 })).rejects.toThrow();
+    await expect(recordResult(sean, matchId, { scoreA: -1, scoreB: 0 })).rejects.toThrow(/score_a/);
     expect(await getResult(sean, matchId)).toBeNull();
   });
 
@@ -121,6 +125,7 @@ describe("Own record", () => {
     await publishedMatch(); // never played
     const played = await publishedMatch();
     await setRsvp(players.D!.client, played, "out");
+    await dismissFix(sean, played, (await getProposedFix(sean, played))!);
     await recordResult(sean, played, { scoreA: 1, scoreB: 0 });
 
     expect(await getOwnRecord(players.D!.client, groupId)).toMatchObject({ played: 0, won: 0, lost: 0, drawn: 0 });
@@ -146,7 +151,7 @@ describe("Attendance board", () => {
 
   it("leaves out Guests and non-members", async () => {
     const { sean, groupId, players } = await league(["A", "B"]);
-    const matchId = await createMatch(sean, groupId, { startsAt: inAWeek(), capacity: 3 });
+    const matchId = await createMatch(sean, groupId, { startsAt: anHourAgo(), capacity: 3 });
     await openRsvps(sean, matchId);
     await setRsvp(players.A!.client, matchId, "in");
     await setRsvp(players.B!.client, matchId, "in");
