@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateTeams, scoreSplit, type Player, type Split } from "./index";
+import { generateTeams, PENALTY, scoreSplit, type Player, type Rules, type Split } from "./index";
 
 const player = (id: string, rating: number, extra: Partial<Player> = {}): Player => ({
   id,
@@ -336,5 +336,56 @@ describe("generateTeams: minimal-change fix after a dropout", () => {
   it("leaves 'moved' undefined for ordinary generation", () => {
     const [best] = generateTeams([player("a", 50), player("b", 50)], {});
     expect(best!.moved).toBeUndefined();
+  });
+});
+
+describe("generateTeams: best split under the full cost, checked against brute force", () => {
+  const squad: Player[] = [
+    player("gk", 70, { happyInGoal: true, position: "GK" }),
+    player("d1", 65, { position: "defender" }),
+    player("d2", 55, { position: "defender" }),
+    player("a1", 80, { position: "attacker", happyInGoal: true }),
+    player("a2", 45, { position: "attacker" }),
+    player("m1", 60),
+    player("m2", 35),
+    player("m3", 50),
+  ];
+  const rules: Rules = { together: [["d1", "m2"]], apart: [["a1", "a2"], ["gk", "m3"]] };
+
+  // Written out separately from the module: the cost of a team assignment, from first principles.
+  function costOf(teamA: string[]): number {
+    const inA = new Set(teamA);
+    const sideOf = (id: string) => inA.has(id);
+    let cost = Math.abs(
+      squad.reduce((sum, p) => sum + (sideOf(p.id) ? p.rating : -p.rating), 0),
+    );
+    for (const [x, y] of rules.together ?? []) if (sideOf(x) !== sideOf(y)) cost += PENALTY.brokenPair;
+    for (const [x, y] of rules.apart ?? []) if (sideOf(x) === sideOf(y)) cost += PENALTY.brokenPair;
+    const keepers = squad.filter((p) => p.happyInGoal || p.position === "GK");
+    for (const wantA of [true, false]) {
+      if (!keepers.some((p) => sideOf(p.id) === wantA)) cost += PENALTY.teamWithoutKeeper;
+    }
+    for (const position of ["defender", "attacker"] as const) {
+      const tagged = squad.filter((p) => p.position === position);
+      const inTeamA = tagged.filter((p) => sideOf(p.id)).length;
+      const gap = Math.abs(inTeamA - (tagged.length - inTeamA)) - (tagged.length % 2);
+      cost += PENALTY.positionImbalance * Math.max(0, gap);
+    }
+    return cost;
+  }
+
+  it("ranks a split whose cost equals the best cost of any 4v4 split", () => {
+    let cheapest = Infinity;
+    for (let mask = 0; mask < 1 << squad.length; mask++) {
+      const teamA = squad.filter((_, i) => mask & (1 << i)).map((p) => p.id);
+      if (teamA.length === squad.length / 2) cheapest = Math.min(cheapest, costOf(teamA));
+    }
+    const [best] = generateTeams(squad, rules);
+    expect(costOf(best!.teamA)).toBe(cheapest);
+  });
+
+  it("never ranks a later split cheaper than an earlier one", () => {
+    const costs = generateTeams(squad, rules).map((split) => costOf(split.teamA));
+    expect(costs).toEqual([...costs].sort((a, b) => a - b));
   });
 });
