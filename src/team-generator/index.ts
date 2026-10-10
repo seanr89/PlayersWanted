@@ -20,9 +20,12 @@ export type Violation =
   | { kind: "no-happy-in-goal"; team: "A" | "B" }
   | { kind: "position-imbalance"; position: Position; difference: number };
 
-export interface Split {
+export interface Teams {
   teamA: string[];
   teamB: string[];
+}
+
+export interface Split extends Teams {
   /** Absolute difference between the two Teams' total Ratings. */
   balance: number;
   violations: Violation[];
@@ -38,7 +41,7 @@ export interface GenerateOptions {
    * of the best cost are ranked by fewest players moved, then by cost. Players who are
    * not in the published Teams (e.g. a replacement) are free to go anywhere.
    */
-  keepCloseTo?: { teamA: string[]; teamB: string[] };
+  keepCloseTo?: Teams;
   /** How much worse than the best split (in cost points) we accept to avoid moving people. Default 10. */
   tolerance?: number;
 }
@@ -73,7 +76,7 @@ export function generateTeams(players: Player[], rules: Rules, options: Generate
   if (n === 0) return [];
   const scorer = makeScorer(players, rules);
   const exhaustive = n <= EXHAUSTIVE_LIMIT;
-  let candidates = exhaustive ? enumerate(n, scorer) : boundedSearch(n, scorer, options);
+  let candidates = exhaustive ? enumerate(n, scorer) : boundedSearch(players, scorer, options);
   candidates.sort(byCostThenLayout);
 
   let moved: number[] | undefined;
@@ -81,10 +84,10 @@ export function generateTeams(players: Player[], rules: Rules, options: Generate
     const anchor = anchorSides(players, options.keepCloseTo);
     const ranked = candidates.map((c) => align(c, anchor, scorer));
     const eligibleCost = ranked[0]!.cost + (options.tolerance ?? DEFAULT_TOLERANCE);
-    const close = ranked.filter((r) => r.cost <= eligibleCost);
-    const rest = ranked.slice(close.length);
-    close.sort((x, y) => x.moved - y.moved || x.cost - y.cost || compareSides(x.side, y.side));
-    const ordered = [...close, ...rest];
+    const withinTolerance = ranked.filter((r) => r.cost <= eligibleCost);
+    const rest = ranked.slice(withinTolerance.length);
+    withinTolerance.sort((x, y) => x.moved - y.moved || x.cost - y.cost || compareSides(x.side, y.side));
+    const ordered = [...withinTolerance, ...rest];
     candidates = ordered;
     moved = ordered.map((r) => r.moved);
   }
@@ -115,6 +118,18 @@ function assertUniqueIds(players: Player[]): void {
   }
 }
 
+function penaltyFor(v: Violation): number {
+  switch (v.kind) {
+    case "pair-together-broken":
+    case "pair-apart-broken":
+      return PENALTY.brokenPair;
+    case "no-happy-in-goal":
+      return PENALTY.teamWithoutKeeper;
+    case "position-imbalance":
+      return PENALTY.positionImbalance * v.difference;
+  }
+}
+
 type Scorer = ReturnType<typeof makeScorer>;
 
 /** Every distinct two-team split, once each (Team A always holds the first player). */
@@ -135,10 +150,11 @@ function enumerate(n: number, scorer: Scorer): Candidate[] {
  * Teams from a greedy start, an anchor-shaped start and a few seeded shuffles, then
  * keep the local optima and their one-swap neighbours.
  */
-function boundedSearch(n: number, scorer: Scorer, options: GenerateOptions): Candidate[] {
+function boundedSearch(players: Player[], scorer: Scorer, options: GenerateOptions): Candidate[] {
+  const n = players.length;
   const sizeA = Math.ceil(n / 2);
-  const starts: Side[] = [greedyStart(scorer.ratings, sizeA)];
-  if (options.keepCloseTo) starts.push(scorer.anchorStart(options.keepCloseTo, sizeA));
+  const starts: Side[] = [greedyStart(players.map((p) => p.rating), sizeA)];
+  if (options.keepCloseTo) starts.push(anchorStart(players, options.keepCloseTo, sizeA));
   const random = seededRandom(n);
   for (let r = 0; r < RESTARTS; r++) {
     const order = Array.from({ length: n }, (_, i) => i).sort(() => random() - 0.5);
@@ -149,7 +165,7 @@ function boundedSearch(n: number, scorer: Scorer, options: GenerateOptions): Can
 
   const pool = new Map<string, Candidate>();
   const add = (side: Side) => {
-    const canonical = side[0] === 1 ? side : side.map((v) => 1 - v);
+    const canonical = side[0] === 1 ? side : flip(side);
     const key = canonical.join("");
     if (!pool.has(key)) pool.set(key, { side: canonical, cost: scorer.cost(canonical) });
   };
@@ -193,6 +209,23 @@ function forEachSwap(side: Side, visit: (swapped: Side) => void): void {
   }
 }
 
+/** Published players stay where they were; newcomers fill Team A until it is full. */
+function anchorStart(players: Player[], anchor: Teams, sizeA: number): Side {
+  const was = anchorSides(players, anchor);
+  const side = new Uint8Array(players.length);
+  was.forEach((w, i) => {
+    if (w === 1) side[i] = 1;
+  });
+  let countA = side.reduce((sum, v) => sum + v, 0);
+  was.forEach((w, i) => {
+    if (w === undefined && countA < sizeA) {
+      side[i] = 1;
+      countA++;
+    }
+  });
+  return side;
+}
+
 function greedyStart(ratings: number[], sizeA: number): Side {
   const n = ratings.length;
   const side = new Uint8Array(n);
@@ -217,16 +250,20 @@ function greedyStart(ratings: number[], sizeA: number): Side {
   return side;
 }
 
+/** mulberry32: small deterministic generator that stays within 32-bit integer maths. */
 function seededRandom(seed: number): () => number {
-  let state = seed * 2654435761 + 1;
+  let state = seed >>> 0;
   return () => {
-    state = (state * 1664525 + 1013904223) % 4294967296;
-    return state / 4294967296;
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
 /** For each player: 1 = was on Team A, 0 = was on Team B, undefined = not in the published Teams. */
-function anchorSides(players: Player[], anchor: { teamA: string[]; teamB: string[] }): (0 | 1 | undefined)[] {
+function anchorSides(players: Player[], anchor: Teams): (0 | 1 | undefined)[] {
   const a = new Set(anchor.teamA);
   const b = new Set(anchor.teamB);
   return players.map((p) => (a.has(p.id) ? 1 : b.has(p.id) ? 0 : undefined));
@@ -243,10 +280,15 @@ function align(c: Candidate, anchor: (0 | 1 | undefined)[], scorer: Scorer): Can
   });
   // Swapping the labels turns every agreeing player into a mover and vice versa.
   if (agree < differ) {
-    const side = c.side.map((v) => 1 - v);
+    const side = flip(c.side);
     return { side, cost: scorer.cost(side), moved: agree };
   }
   return { ...c, moved: differ };
+}
+
+/** Swaps which Team everyone is on. */
+function flip(side: Side): Side {
+  return side.map((v) => 1 - v);
 }
 
 function byCostThenLayout(x: Candidate, y: Candidate): number {
@@ -309,14 +351,9 @@ function makeScorer(players: Player[], rules: Rules) {
   }
 
   return {
-    ratings,
     cost(side: Side): number {
       let cost = balance(side);
-      for (const v of violations(side)) {
-        if (v.kind === "no-happy-in-goal") cost += PENALTY.teamWithoutKeeper;
-        else if (v.kind === "position-imbalance") cost += PENALTY.positionImbalance * v.difference;
-        else cost += PENALTY.brokenPair;
-      }
+      for (const v of violations(side)) cost += penaltyFor(v);
       return cost;
     },
     split(side: Side): Split {
@@ -326,26 +363,6 @@ function makeScorer(players: Player[], rules: Rules) {
         balance: balance(side),
         violations: violations(side),
       };
-    },
-    /** Published players stay where they were; newcomers fill whichever Team is short. */
-    anchorStart(anchor: { teamA: string[]; teamB: string[] }, sizeA: number): Side {
-      const was = anchorSides(players, anchor);
-      const side = new Uint8Array(n);
-      let countA = 0;
-      was.forEach((w, i) => {
-        if (w === 1) {
-          side[i] = 1;
-          countA++;
-        }
-      });
-      was.forEach((w, i) => {
-        if (w !== undefined) return;
-        if (countA < sizeA) {
-          side[i] = 1;
-          countA++;
-        }
-      });
-      return side;
     },
   };
 }

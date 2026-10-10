@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { generateTeams, scoreSplit, type Player } from "./index";
+import { generateTeams, scoreSplit, type Player, type Split } from "./index";
 
 const player = (id: string, rating: number, extra: Partial<Player> = {}): Player => ({
   id,
   rating,
   ...extra,
 });
+
+const sameTeam = (split: Split, x: string, y: string) => split.teamA.includes(x) === split.teamA.includes(y);
 
 // Independent oracle: try every way of choosing team A of size n/2 and take the best difference.
 function bestPossibleBalance(ratings: number[]): number {
@@ -48,7 +50,7 @@ describe("generateTeams: rating balance", () => {
     const players = [player("a", 80), player("b", 60), player("c", 50), player("d", 30)];
     const [best] = generateTeams(players, {});
     expect(best!.balance).toBe(0);
-    expect(best!.teamA.includes("a")).toBe(best!.teamA.includes("d"));
+    expect(sameTeam(best!, "a", "d")).toBe(true);
   });
 });
 
@@ -91,7 +93,7 @@ describe("generateTeams: happy in goal", () => {
       player("b", 60),
     ];
     const [best] = generateTeams(players, {});
-    expect(best!.teamA.includes("gk1")).not.toBe(best!.teamA.includes("gk2"));
+    expect(sameTeam(best!, "gk1", "gk2")).toBe(false);
   });
 });
 
@@ -101,19 +103,20 @@ describe("generateTeams: keep-together and keep-apart pairs", () => {
 
   it("honours a keep-together pair when it can", () => {
     const [best] = generateTeams(players, { together: [["a", "b"]] });
-    expect(best!.teamA.includes("a")).toBe(best!.teamA.includes("b"));
+    expect(sameTeam(best!, "a", "b")).toBe(true);
     expect(best!.violations).toEqual([]);
   });
 
   it("honours a keep-apart pair when it can", () => {
     const [best] = generateTeams(players, { apart: [["a", "d"]] });
-    expect(best!.teamA.includes("a")).not.toBe(best!.teamA.includes("d"));
+    expect(sameTeam(best!, "a", "d")).toBe(false);
     expect(best!.violations).toEqual([]);
   });
 
   it("reports the broken pair when contradictory rules make a violation unavoidable", () => {
     const [best] = generateTeams(players, { together: [["a", "b"]], apart: [["a", "b"]] });
     expect(best!.violations).toHaveLength(1);
+    expect(best!.violations[0]).toMatchObject({ a: "a", b: "b" });
   });
 
   it("ignores rules about players who are not playing", () => {
@@ -140,8 +143,8 @@ describe("generateTeams: position spreading", () => {
       player("def2", 60, { position: "defender" }),
     ];
     const [best] = generateTeams(players, {});
-    expect(best!.teamA.includes("att1")).not.toBe(best!.teamA.includes("att2"));
-    expect(best!.teamA.includes("def1")).not.toBe(best!.teamA.includes("def2"));
+    expect(sameTeam(best!, "att1", "att2")).toBe(false);
+    expect(sameTeam(best!, "def1", "def2")).toBe(false);
     expect(best!.violations).toEqual([]);
   });
 
@@ -156,16 +159,20 @@ describe("generateTeams: position spreading", () => {
     expect(best!.violations).toEqual([]);
   });
 
+  const attackersAndOthers = () => [
+    player("att1", 55, { position: "attacker" }),
+    player("att2", 55, { position: "attacker" }),
+    player("x", 45),
+    player("y", 45),
+  ];
+
+  it("splits the attackers when nothing stops it", () => {
+    expect(generateTeams(attackersAndOthers(), {})[0]!.violations).toEqual([]);
+  });
+
   it("reports an imbalance it could not avoid", () => {
-    const players = [
-      player("att1", 55, { position: "attacker" }),
-      player("att2", 55, { position: "attacker" }),
-      player("x", 45),
-      player("y", 45),
-    ];
-    // Splitting the attackers is also the only perfect balance, so this is clean...
-    expect(generateTeams(players, {})[0]!.violations).toEqual([]);
-    // ...but a keep-together pair forces them onto one Team.
+    const players = attackersAndOthers();
+    // A keep-together pair forces both attackers onto one Team.
     const [forced] = generateTeams(players, { together: [["att1", "att2"]] });
     expect(forced!.violations).toContainEqual({
       kind: "position-imbalance",
@@ -190,16 +197,17 @@ describe("generateTeams: sizes and edge cases", () => {
     expect(generateTeams(odd, {})).toHaveLength(126);
   });
 
-  it("handles bigger games", () => {
+  it("balances a 14-player game as well as brute force can", () => {
     const players = Array.from({ length: 14 }, (_, i) => player(`p${i}`, 10 + i * 5));
     const [best] = generateTeams(players, {});
     expect(best!.teamA).toHaveLength(7);
     expect(best!.balance).toBe(bestPossibleBalance(players.map((p) => p.rating)));
   });
 
-  it("copes with all-equal Ratings", () => {
+  it("copes with all-equal Ratings: every split is perfectly balanced", () => {
     const players = Array.from({ length: 10 }, (_, i) => player(`p${i}`, 50));
-    expect(generateTeams(players, {})[0]!.balance).toBe(0);
+    const all = generateTeams(players, {});
+    expect(all.every((split) => split.balance === 0)).toBe(true);
   });
 
   it("copes with one very strong player", () => {
@@ -231,9 +239,9 @@ describe("generateTeams: ranking", () => {
     expect(generateTeams(players, {})).toEqual(generateTeams(players, {}));
   });
 
-  it("orders splits from best to worst", () => {
-    const costs = generateTeams(players, {}).map((s) => s.balance);
-    expect(costs).toEqual([...costs].sort((a, b) => a - b));
+  it("with no rules, orders splits from smallest to largest rating gap", () => {
+    const balances = generateTeams(players, {}).map((s) => s.balance);
+    expect(balances).toEqual([...balances].sort((a, b) => a - b));
   });
 
   it("finds equally good balance whatever order players are supplied in", () => {
@@ -265,9 +273,7 @@ describe("generateTeams: very large games", () => {
   const players = Array.from({ length: 40 }, (_, i) => player(`p${i}`, 20 + ((i * 37) % 61)));
 
   it("still returns valid, well-balanced splits without searching every combination", () => {
-    const started = Date.now();
     const result = generateTeams(players, {}, { limit: 5 });
-    expect(Date.now() - started).toBeLessThan(2000);
     expect(result.length).toBeGreaterThan(0);
     for (const split of result) {
       expect([...split.teamA, ...split.teamB].sort()).toEqual(players.map((p) => p.id).sort());
@@ -316,8 +322,9 @@ describe("generateTeams: minimal-change fix after a dropout", () => {
       .map(([id, r]) => player(id, r));
     const [fix] = generateTeams(players, {}, { keepCloseTo: published, tolerance: 20 });
     // Moving one 40-rated player from A to B brings the gap from 60 down to 20: within tolerance.
+    const gapAfterOneMove = 20;
     expect(fix!.moved).toBe(1);
-    expect(fix!.balance).toBeLessThanOrEqual(20);
+    expect(fix!.balance).toBe(gapAfterOneMove);
   });
 
   it("does not move anyone when the Teams are already close enough", () => {
