@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { generateTeams, type Player, type Rules } from "../team-generator";
 
 /**
  * The application layer: the only way the UI changes state or reads Group data.
@@ -202,4 +203,136 @@ export async function getMatch(client: SupabaseClient, matchId: string): Promise
     waitlisted: rsvps.filter((r) => r.status === "waitlist").length,
     spotsLeft: Math.max(0, match.capacity - playing),
   };
+}
+
+export interface TeamPlayer {
+  membershipId: string;
+  displayName: string;
+}
+
+export interface MatchTeams {
+  state: "draft" | "published";
+  teamA: TeamPlayer[];
+  teamB: TeamPlayer[];
+}
+
+export async function setHappyInGoal(client: SupabaseClient, membershipId: string, value: boolean): Promise<void> {
+  await command(client, "set_happy_in_goal", { p_membership: membershipId, p_value: value });
+}
+
+export async function setPairRule(
+  client: SupabaseClient,
+  a: string,
+  b: string,
+  kind: "together" | "apart",
+): Promise<void> {
+  await command(client, "set_pair_rule", { p_a: a, p_b: b, p_kind: kind });
+}
+
+export async function removePairRule(client: SupabaseClient, a: string, b: string): Promise<void> {
+  await command(client, "remove_pair_rule", { p_a: a, p_b: b });
+}
+
+async function getPairRules(client: SupabaseClient, groupId: string): Promise<Rules> {
+  const { data, error } = await client
+    .from("pair_rules")
+    .select("a_membership_id, b_membership_id, kind")
+    .eq("group_id", groupId);
+  if (error) throw new Error(error.message);
+  const pairs = (kind: string) =>
+    (data ?? []).filter((r) => r.kind === kind).map((r): [string, string] => [r.a_membership_id, r.b_membership_id]);
+  return { together: pairs("together"), apart: pairs("apart") };
+}
+
+/** The playing players with everything the generator needs. Admin-only: Ratings are invisible to anyone else. */
+async function playingPlayers(client: SupabaseClient, match: Match): Promise<Player[]> {
+  const [rsvps, squad] = await Promise.all([getMatchRsvps(client, match.id), getSquad(client, match.groupId)]);
+  const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+  return squad
+    .filter((m) => playing.has(m.id))
+    .map((m) => {
+      if (m.rating === undefined) throw new Error("only an admin can generate teams");
+      return {
+        id: m.id,
+        rating: m.rating,
+        happyInGoal: m.happyInGoal,
+        ...(m.position ? { position: m.position } : {}),
+      };
+    });
+}
+
+async function rankedSplits(client: SupabaseClient, matchId: string, limit: number) {
+  const { data, error } = await client.from("matches").select(MATCH_COLUMNS).eq("id", matchId).single();
+  if (error) throw new Error(error.message);
+  const match = toMatch(data);
+  const players = await playingPlayers(client, match);
+  if (players.length < 2) throw new Error("at least two players are needed to make teams");
+  return generateTeams(players, await getPairRules(client, match.groupId), { limit });
+}
+
+async function saveDraft(client: SupabaseClient, matchId: string, teamA: string[], teamB: string[], rank: number) {
+  await command(client, "save_draft_teams", { p_match: matchId, p_team_a: teamA, p_team_b: teamB, p_rank: rank });
+}
+
+/** Generate the best split from the Ratings, position tags, happy-in-goal flags and pair rules. Draft only. */
+export async function generateDraftTeams(client: SupabaseClient, matchId: string): Promise<void> {
+  const [best] = await rankedSplits(client, matchId, 1);
+  await saveDraft(client, matchId, best!.teamA, best!.teamB, 0);
+}
+
+/** Step to the next-best split in the generator's ranked list. */
+export async function reshuffleDraftTeams(client: SupabaseClient, matchId: string): Promise<void> {
+  const { data, error } = await client.from("teams").select("rank").eq("match_id", matchId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("there is no draft to reshuffle");
+  const next = data.rank + 1;
+  const splits = await rankedSplits(client, matchId, next + 1);
+  const split = splits[next];
+  if (!split) throw new Error("there are no further splits");
+  await saveDraft(client, matchId, split.teamA, split.teamB, next);
+}
+
+export async function swapPlayers(client: SupabaseClient, matchId: string, a: string, b: string): Promise<void> {
+  const [{ data: rows, error }, { data: team }] = await Promise.all([
+    client.from("team_players").select("membership_id, side").eq("match_id", matchId),
+    client.from("teams").select("rank").eq("match_id", matchId).maybeSingle(),
+  ]);
+  if (error) throw new Error(error.message);
+  const sideOf = new Map((rows ?? []).map((r) => [r.membership_id, r.side]));
+  if (!sideOf.has(a) || !sideOf.has(b) || sideOf.get(a) === sideOf.get(b)) {
+    throw new Error("pick one player from each team to swap");
+  }
+  const swapped = (id: string) => (id === a ? sideOf.get(b) : id === b ? sideOf.get(a) : sideOf.get(id));
+  const ids = [...sideOf.keys()];
+  await saveDraft(
+    client,
+    matchId,
+    ids.filter((id) => swapped(id) === "A"),
+    ids.filter((id) => swapped(id) === "B"),
+    team?.rank ?? 0,
+  );
+}
+
+export async function publishTeams(client: SupabaseClient, matchId: string): Promise<void> {
+  await command(client, "publish_teams", { p_match: matchId });
+}
+
+/** The Teams this user is allowed to see: null if none are visible (e.g. a draft, for a player). */
+export async function getTeams(client: SupabaseClient, matchId: string): Promise<MatchTeams | null> {
+  const { data: team, error } = await client.from("teams").select("state").eq("match_id", matchId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!team) return null;
+  const { data, error: playersError } = await client
+    .from("team_players")
+    .select("side, membership_id, memberships(display_name)")
+    .eq("match_id", matchId);
+  if (playersError) throw new Error(playersError.message);
+  const side = (which: "A" | "B") =>
+    (data ?? [])
+      .filter((r) => r.side === which)
+      .map((r) => ({
+        membershipId: r.membership_id,
+        displayName: (r.memberships as unknown as { display_name: string }).display_name,
+      }));
+  return { state: team.state, teamA: side("A"), teamB: side("B") };
 }
