@@ -31,8 +31,9 @@ export function sql(query: string): string {
  * Run the recurring-template job as the scheduler would, pretending it is `at`. Scoped to one group so tests
  * don't touch each other's data. Returns how many Matches it created.
  */
-export function runRecurringJob(at: Date, groupId: string): number {
-  return Number(sql(`select private.run_recurring_templates('${at.toISOString()}', '${groupId}')`));
+export function runRecurringJob(at: Date, groupId?: string): number {
+  const scope = groupId ? `'${groupId}'` : "null";
+  return Number(sql(`select private.run_recurring_templates('${at.toISOString()}', ${scope})`));
 }
 
 /** Weekday (0 = Sunday) and hour:minute of an instant as seen in a time zone. */

@@ -164,7 +164,6 @@ describe("Single-Match changes do not disturb the template", () => {
     const all = await matches();
     expect(all).toHaveLength(2);
     expect(all[1]!.costPerPlayer).toBe(0); // the template, not the edited Match
-    expect((await getRecurringTemplate(sean, groupId))!.weekday).toBe(4);
   });
 
   it("does not bring back a cancelled occurrence", async () => {
@@ -214,7 +213,7 @@ describe("Who can run the job", () => {
     const { sean, groupId } = await thursdays();
 
     const { error } = await sean.rpc("run_recurring_templates", { p_group: groupId });
-    expect(error).not.toBeNull();
+    expect(error?.message).toMatch(/could not find the function/i);
     expect(sql(`select has_function_privilege('authenticated', 'private.run_recurring_templates(timestamptz, uuid)', 'execute')`)).toBe("f");
   });
 

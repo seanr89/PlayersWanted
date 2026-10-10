@@ -716,14 +716,17 @@ export function findOrCreateVenue(client: SupabaseClient, groupId: string, name:
 export async function updateVenue(
   client: SupabaseClient,
   venueId: string,
-  changes: { name?: string; address?: string; mapsUrl?: string; defaultCost?: number },
+  changes: { name?: string; address?: string | null; mapsUrl?: string | null; defaultCost?: number },
 ): Promise<void> {
+  // Left out keeps the current value; null removes it.
   await command(client, "update_venue", {
     p_venue: venueId,
     p_name: changes.name ?? null,
     p_address: changes.address ?? null,
     p_maps_url: changes.mapsUrl ?? null,
     p_default_cost: changes.defaultCost ?? null,
+    p_clear_address: changes.address === null,
+    p_clear_maps_url: changes.mapsUrl === null,
   });
 }
 
@@ -780,7 +783,8 @@ export async function saveRecurringTemplate(
     capacity?: number;
     costPerPlayer?: number;
     rsvpLeadDays?: number;
-    rsvpDeadlineHoursBefore?: number;
+    /** Hours before kick-off that RSVPs close. Defaults to 24; pass null for no deadline. */
+    rsvpDeadlineHoursBefore?: number | null;
   },
 ): Promise<void> {
   await command(client, "save_recurring_template", {
@@ -792,7 +796,7 @@ export async function saveRecurringTemplate(
     p_capacity: template.capacity ?? 10,
     p_cost: template.costPerPlayer ?? null,
     p_lead_days: template.rsvpLeadDays ?? 3,
-    p_deadline_hours: template.rsvpDeadlineHoursBefore ?? null,
+    p_deadline_hours: template.rsvpDeadlineHoursBefore === undefined ? 24 : template.rsvpDeadlineHoursBefore,
   });
 }
 
