@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Local Supabase defaults (public dev values). Override with the env vars in .env.example.
@@ -18,3 +19,10 @@ export const inAWeek = () => new Date(Date.now() + 7 * 24 * 3600 * 1000);
 /** Index rows by display name, for readable assertions about who is playing or queued. */
 export const byName = <T extends { displayName: string }>(rows: T[]): Record<string, T> =>
   Object.fromEntries(rows.map((r) => [r.displayName, r]));
+
+/** Run SQL as the database owner inside the local Supabase container. Test setup only (e.g. forcing a match to 'played'). */
+export function sql(query: string): string {
+  return execFileSync("docker", ["exec", "supabase_db_PlayersWanted", "psql", "-U", "postgres", "-tAc", query], {
+    encoding: "utf8",
+  }).trim();
+}

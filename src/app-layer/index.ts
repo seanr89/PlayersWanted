@@ -27,6 +27,11 @@ export interface SquadMember {
   rating?: number;
 }
 
+export async function isAdmin(client: SupabaseClient, groupId: string): Promise<boolean> {
+  const { data } = await client.rpc("is_group_admin", { p_group: groupId });
+  return data === true;
+}
+
 export function createGroup(client: SupabaseClient, args: { name: string; ownerName: string }): Promise<string> {
   return command(client, "create_group", { p_name: args.name, p_owner_name: args.ownerName });
 }
@@ -212,6 +217,9 @@ export async function getMatch(client: SupabaseClient, matchId: string): Promise
   };
 }
 
+/** Which Team a player is on. */
+export type Side = "A" | "B";
+
 export interface TeamPlayer {
   membershipId: string;
   displayName: string;
@@ -351,7 +359,7 @@ export async function getTeams(client: SupabaseClient, matchId: string): Promise
     .select("side, membership_id, memberships(display_name)")
     .eq("match_id", matchId);
   if (playersError) throw new Error(playersError.message);
-  const side = (which: "A" | "B") =>
+  const side = (which: Side) =>
     (data ?? [])
       .filter((r) => r.side === which)
       .map((r) => ({
@@ -405,8 +413,7 @@ export async function getGuests(client: SupabaseClient, matchId: string): Promis
     .eq("guest_match_id", matchId)
     .order("created_at");
   if (error) throw new Error(error.message);
-  const { data: isAdmin } = await client.rpc("is_group_admin", { p_group: match.groupId });
-  const average = isAdmin ? averageRating(await getSquad(client, match.groupId)) : undefined;
+  const average = (await isAdmin(client, match.groupId)) ? averageRating(await getSquad(client, match.groupId)) : undefined;
   return (data ?? []).map((row) => {
     const rating = (row.membership_ratings as unknown as { rating: number } | null)?.rating;
     return {
@@ -425,9 +432,9 @@ export interface FixProposal {
   /** Players on the published Teams who are no longer in. */
   vacated: TeamPlayer[];
   /** Waitlisted players taking a vacated slot (first in the queue first), on the side they join. */
-  promoted: (TeamPlayer & { side: "A" | "B" })[];
+  promoted: (TeamPlayer & { side: Side })[];
   /** Players switching Team to rebalance (only when the Waitlist cannot fill every vacated slot). */
-  moved: (TeamPlayer & { from: "A" | "B"; to: "A" | "B" })[];
+  moved: (TeamPlayer & { from: Side; to: Side })[];
   /** The Teams as they would be after the fix. */
   teamA: TeamPlayer[];
   teamB: TeamPlayer[];
@@ -441,8 +448,7 @@ export interface FixProposal {
  */
 export async function getProposedFix(client: SupabaseClient, matchId: string): Promise<FixProposal | null> {
   const match = await fetchMatch(client, matchId);
-  const { data: isAdmin } = await client.rpc("is_group_admin", { p_group: match.groupId });
-  if (!isAdmin) throw new Error("only an admin can see proposed fixes");
+  if (!(await isAdmin(client, match.groupId))) throw new Error("only an admin can see proposed fixes");
   if (match.status !== "teams_published") return null;
 
   const [teams, rsvps, dismissed] = await Promise.all([
@@ -453,8 +459,8 @@ export async function getProposedFix(client: SupabaseClient, matchId: string): P
   if (!teams) return null;
   const rsvpOf = new Map(rsvps.map((r) => [r.membershipId, r]));
   const onTeams = [
-    ...teams.teamA.map((p) => ({ ...p, side: "A" as const })),
-    ...teams.teamB.map((p) => ({ ...p, side: "B" as const })),
+    ...teams.teamA.map((p) => ({ ...p, side: "A" as Side })),
+    ...teams.teamB.map((p) => ({ ...p, side: "B" as Side })),
   ];
   const vacated = onTeams.filter((p) => rsvpOf.get(p.membershipId)?.status !== "playing");
   if (vacated.length === 0) return null;
@@ -473,7 +479,7 @@ export async function getProposedFix(client: SupabaseClient, matchId: string): P
 
   const players = await ratedPlayers(client, match, new Set(sideOf.keys()));
   const rules = await getPairRules(client, match.groupId);
-  const idsOn = (side: "A" | "B") => working.filter((p) => p.side === side).map((p) => p.membershipId);
+  const idsOn = (side: Side) => working.filter((p) => p.side === side).map((p) => p.membershipId);
   let teamA = idsOn("A");
   let teamB = idsOn("B");
   const moved: FixProposal["moved"] = [];
@@ -498,7 +504,8 @@ export async function getProposedFix(client: SupabaseClient, matchId: string): P
   return {
     key,
     vacated: vacated.map(({ membershipId, displayName }) => ({ membershipId, displayName })),
-    promoted,
+    // A rebalance can move a player who was just promoted, so report where they end up.
+    promoted: promoted.map((p) => ({ ...p, side: teamA.includes(p.membershipId) ? ("A" as const) : ("B" as const) })),
     moved,
     teamA: teamA.map(person),
     teamB: teamB.map(person),
