@@ -747,3 +747,77 @@ export async function getVenues(client: SupabaseClient, groupId: string): Promis
 export async function setMatchVenue(client: SupabaseClient, matchId: string, venueId: string | null): Promise<void> {
   await command(client, "set_match_venue", { p_match: matchId, p_venue: venueId });
 }
+
+export interface RecurringTemplate {
+  /** 0 = Sunday ... 6 = Saturday, in the template's time zone. */
+  weekday: number;
+  /** "HH:MM", in the template's time zone. */
+  startTime: string;
+  timezone: string;
+  venueId: string | null;
+  capacity: number;
+  /** Null means "use the Venue's default cost". */
+  costPerPlayer: number | null;
+  /** How many days before kick-off RSVPs open. */
+  rsvpLeadDays: number;
+  /** Hours before kick-off that RSVPs close; null means no deadline. */
+  rsvpDeadlineHoursBefore: number | null;
+  paused: boolean;
+}
+
+/**
+ * Create or edit the Group's weekly template (there is at most one). Saving creates next week's Match
+ * straight away; changes apply to Matches made afterwards, not ones that already exist.
+ */
+export async function saveRecurringTemplate(
+  client: SupabaseClient,
+  groupId: string,
+  template: {
+    weekday: number;
+    startTime: string;
+    timezone: string;
+    venueId?: string;
+    capacity?: number;
+    costPerPlayer?: number;
+    rsvpLeadDays?: number;
+    rsvpDeadlineHoursBefore?: number;
+  },
+): Promise<void> {
+  await command(client, "save_recurring_template", {
+    p_group: groupId,
+    p_weekday: template.weekday,
+    p_start_time: template.startTime,
+    p_timezone: template.timezone,
+    p_venue: template.venueId ?? null,
+    p_capacity: template.capacity ?? 10,
+    p_cost: template.costPerPlayer ?? null,
+    p_lead_days: template.rsvpLeadDays ?? 3,
+    p_deadline_hours: template.rsvpDeadlineHoursBefore ?? null,
+  });
+}
+
+/** Pause for a summer break, or resume. A paused template makes no Matches and opens no RSVPs. */
+export async function setRecurringPaused(client: SupabaseClient, groupId: string, paused: boolean): Promise<void> {
+  await command(client, "set_recurring_paused", { p_group: groupId, p_paused: paused });
+}
+
+export async function getRecurringTemplate(client: SupabaseClient, groupId: string): Promise<RecurringTemplate | null> {
+  const { data, error } = await client
+    .from("recurring_templates")
+    .select("weekday, start_time, timezone, venue_id, capacity, cost_per_player, rsvp_lead_days, rsvp_deadline_hours_before, paused")
+    .eq("group_id", groupId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    weekday: data.weekday,
+    startTime: data.start_time.slice(0, 5),
+    timezone: data.timezone,
+    venueId: data.venue_id,
+    capacity: data.capacity,
+    costPerPlayer: data.cost_per_player === null ? null : Number(data.cost_per_player),
+    rsvpLeadDays: data.rsvp_lead_days,
+    rsvpDeadlineHoursBefore: data.rsvp_deadline_hours_before,
+    paused: data.paused,
+  };
+}
