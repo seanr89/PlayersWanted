@@ -267,8 +267,12 @@ describe("A Group always has an Owner", () => {
   it("is enforced by the database, whatever route is taken", async () => {
     const { groupId } = await groupWith([]);
 
-    expect(() => sql(`update memberships set role = 'member' where group_id = '${groupId}' and role = 'owner'`)).toThrow();
-    expect(() => sql(`delete from memberships where group_id = '${groupId}' and role = 'owner'`)).toThrow();
+    expect(() => sql(`update memberships set role = 'member' where group_id = '${groupId}' and role = 'owner'`)).toThrow(
+      /must always have an owner/,
+    );
+    expect(() => sql(`delete from memberships where group_id = '${groupId}' and role = 'owner'`)).toThrow(
+      /must always have an owner/,
+    );
     expect(sql(`select count(*) from memberships where group_id = '${groupId}' and role = 'owner'`)).toBe("1");
   });
 });

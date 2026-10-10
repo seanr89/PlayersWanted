@@ -53,6 +53,10 @@ Ratings, invite and claim flow, matches (create, edit, cancel), RSVPs with a der
 draft and published Teams, pair rules, Guests, the minimal-change fix after a dropout, score-only Results, a player's
 own record and the Attendance board.
 
-Still to do: the venues and the recurring template, leaving a Group / removing a Membership / account deletion (these
-must anonymise history so Results and attendance stay correct), and the notification interface (at-risk nudge, share
-messages, push and email).
+Removing a Membership, leaving a Group and deleting an account anonymise rather than delete: the member's name,
+Rating, position and pair rules go, their upcoming RSVPs and team slots are cleared, and past appearances stay as a
+"Former player" so Results and attendance remain correct. Every Group always has an Owner (enforced by a deferred
+trigger). Note this is pseudonymisation of past appearances: the placeholder keeps its row id.
+
+Still to do: the venues and the recurring template, and the notification interface (at-risk nudge, share messages,
+push and email).
