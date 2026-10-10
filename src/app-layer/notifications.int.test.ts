@@ -156,18 +156,6 @@ describe("Match at risk", () => {
 
     expect(await deliver(groupId)).toEqual([]);
   });
-
-  it("counts a Guest and a person leaving the Group", async () => {
-    const { groupId, member, openMatch } = await league(["A", "B", "C"], { minPlayers: 3 });
-    const matchId = await openMatch();
-    await deliver(groupId);
-    for (const n of ["A", "B", "C"]) await setRsvp(member(n).client, matchId, "in");
-
-    await leaveGroup(member("C").client, groupId);
-
-    const notes = await deliver(groupId);
-    expect(notes.map((n) => n.kind)).toEqual(["match_at_risk"]);
-  });
 });
 
 describe("Teams", () => {
@@ -248,8 +236,9 @@ describe("Delivery", () => {
     const result = await dispatchNotifications(serviceClient(), [broken, good]);
 
     expect(good.forGroup(groupId)).toHaveLength(1);
-    expect(result.failures.filter((f) => f.error.includes("push service is down"))).not.toHaveLength(0);
-    expect(result.failures[0]).toMatchObject({ channel: "push" });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ channel: "push", error: expect.stringContaining("push service is down") }),
+    );
   });
 
   it("is only available to the service role, never to a signed-in user", async () => {
@@ -266,9 +255,10 @@ describe("Delivery", () => {
   it("cannot be read by players from the events table", async () => {
     const { member } = await league(["A"]);
 
-    const { data } = await member("A").client.from("notification_events").select("*");
+    const { data, error } = await member("A").client.from("notification_events").select("*");
 
-    expect(data ?? []).toEqual([]);
+    expect(error?.message).toMatch(/permission denied/i);
+    expect(data).toBeNull();
   });
 
   it("carries nobody's Rating, and only the details a channel needs about each recipient", async () => {

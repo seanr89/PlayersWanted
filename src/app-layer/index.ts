@@ -546,13 +546,15 @@ export interface GroupInfo {
   name: string;
   minPlayers: number;
   showTeamStrength: boolean;
+  /** IANA time zone used to show Match times that did not come from a recurring template. */
+  timeZone: string;
   myRole: MemberRole;
 }
 
 export async function getGroup(client: SupabaseClient, groupId: string): Promise<GroupInfo> {
   const { data, error } = await client
     .from("groups")
-    .select("id, name, min_players, show_team_strength")
+    .select("id, name, min_players, show_team_strength, timezone")
     .eq("id", groupId)
     .single();
   if (error) throw new Error(error.message);
@@ -562,6 +564,7 @@ export async function getGroup(client: SupabaseClient, groupId: string): Promise
     name: data.name,
     minPlayers: data.min_players,
     showTeamStrength: data.show_team_strength,
+    timeZone: data.timezone,
     myRole,
   };
 }
@@ -575,13 +578,14 @@ export async function getMyGroups(client: SupabaseClient): Promise<{ id: string;
 export async function updateGroup(
   client: SupabaseClient,
   groupId: string,
-  changes: { name?: string; minPlayers?: number; showTeamStrength?: boolean },
+  changes: { name?: string; minPlayers?: number; showTeamStrength?: boolean; timeZone?: string },
 ): Promise<void> {
   await command(client, "update_group", {
     p_group: groupId,
     p_name: changes.name ?? null,
     p_min_players: changes.minPlayers ?? null,
     p_show_team_strength: changes.showTeamStrength ?? null,
+    p_timezone: changes.timeZone ?? null,
   });
 }
 

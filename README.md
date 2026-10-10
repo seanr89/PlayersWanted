@@ -68,11 +68,15 @@ Matches made afterwards (except that an unseen, unmoved next Match is replaced w
 
 Notifications (`src/app-layer/notifications.ts`): commands write events to an outbox table in the same transaction as
 the change (RSVPs opened, Match at risk, Teams published, Teams changed after a fix, Match cancelled). "At risk" fires
-once per downward crossing of the Group's minimum-players threshold and goes to Admins only. A delivery worker calls
-`dispatchNotifications(serviceClient, channels)`: it claims pending events (service role only, at most once each) and hands
-every channel a `Notification` with its recipients. Web push and email are meant to be channels implementing
-`NotificationChannel`; none is built yet, so nothing is sent until a channel is registered. `getShareMessage` gives an
-Admin a prefilled WhatsApp message and `wa.me` link for RSVPs open, at risk and Teams published (no WhatsApp API).
+once per genuine drop below the Group's minimum-players threshold (after it was reached) and goes to Admins only;
+changing the minimum starts that bookkeeping afresh. A delivery worker calls `dispatchNotifications(serviceClient,
+channels)`: it claims pending events (service role only, checked inside the function as well as by grants; at most once
+each, so a crash mid-batch can lose events) and hands every channel a `Notification` with its recipients. Notification
+bodies never list the Teams or any Rating. Web push and email are meant to be channels implementing `NotificationChannel`;
+none is built yet, so nothing is sent until one is registered. `getShareMessage` gives an Admin a prefilled WhatsApp message
+and `wa.me` link for RSVPs open, at risk and Teams published (no WhatsApp API); names are flattened to plain text so a
+member cannot forge lines or links in it. Times use the recurring template's time zone, else the Group's (`timeZone`).
+Set `NEXT_PUBLIC_APP_URL` in production: links refuse to fall back to localhost there.
 Functions that only the service role may call must be re-restricted after any migration that re-runs the blanket
 `grant execute ... to authenticated`; a test guards this.
 
