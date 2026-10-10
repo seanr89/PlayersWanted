@@ -274,6 +274,8 @@ export async function dispatchNotifications(
   channels: NotificationChannel[],
   options: { appUrl?: string } = {},
 ): Promise<DispatchResult> {
+  // Claiming events with nowhere to send them would lose them, so refuse before touching the outbox.
+  if (channels.length === 0) throw new Error("no delivery channels configured");
   const base = appUrl(options.appUrl);
   const result: DispatchResult = { delivered: 0, skipped: 0, failures: [] };
 

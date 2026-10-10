@@ -80,4 +80,17 @@ Set `NEXT_PUBLIC_APP_URL` in production: links refuse to fall back to localhost 
 Functions that only the service role may call must be re-restricted after any migration that re-runs the blanket
 `grant execute ... to authenticated`; a test guards this.
 
-Still to do: real web push and email channels, a worker/route that runs the dispatcher, and the UI.
+### Delivering notifications
+
+`POST /api/notifications/dispatch` (`src/delivery`, a Next.js route) delivers whatever is pending. A scheduler (Vercel
+Cron, a GitHub Action, `cron-job.org`, or `pg_cron` + `pg_net`) should call it every minute or so with
+`Authorization: Bearer $CRON_SECRET`. It fails closed: with no `CRON_SECRET` it answers 503, and it also refuses to run
+unless the service credentials and a delivery channel are configured (it would otherwise claim events and lose them). It
+answers with counts only; details go to the server log. Set the variables in `.env.example` (server-side only).
+
+The only channel so far is email over SMTP (`SMTP_URL`, `EMAIL_FROM`). Each recipient gets their own email with nobody
+else's name or address in it, no Teams and no Ratings. Addresses come from the account, so players who joined anonymously
+(no email) are not reached; only people who signed in with an email address are. Locally, mail goes to Mailpit
+(`http://127.0.0.1:54324`). There is no unsubscribe or per-person preference yet.
+
+Still to do: web push, email opt-out, retry for failed deliveries, and the UI.
