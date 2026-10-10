@@ -604,3 +604,57 @@ export async function updateMatch(
 export async function cancelMatch(client: SupabaseClient, matchId: string): Promise<void> {
   await command(client, "cancel_match", { p_match: matchId });
 }
+
+export interface MatchResult {
+  scoreA: number;
+  scoreB: number;
+}
+
+export interface OwnRecord {
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  /** Matches the Group has played in total, so "played" can be shown as attendance. */
+  groupMatches: number;
+}
+
+export interface AttendanceRow {
+  membershipId: string;
+  displayName: string;
+  played: number;
+}
+
+/** Record the score, or correct a mistyped one. The Match becomes "played". */
+export async function recordResult(client: SupabaseClient, matchId: string, result: MatchResult): Promise<void> {
+  await command(client, "record_result", { p_match: matchId, p_score_a: result.scoreA, p_score_b: result.scoreB });
+}
+
+export async function getResult(client: SupabaseClient, matchId: string): Promise<MatchResult | null> {
+  const { data, error } = await client.from("results").select("score_a, score_b").eq("match_id", matchId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? { scoreA: data.score_a, scoreB: data.score_b } : null;
+}
+
+export async function getOwnRecord(client: SupabaseClient, groupId: string): Promise<OwnRecord> {
+  const [row] = await command<
+    { played: number; won: number; drawn: number; lost: number; group_matches: number }[]
+  >(client, "my_record", { p_group: groupId });
+  return {
+    played: row!.played,
+    won: row!.won,
+    drawn: row!.drawn,
+    lost: row!.lost,
+    groupMatches: row!.group_matches,
+  };
+}
+
+/** How many Matches each member has played. Never wins or Ratings: that would invite arguments. */
+export async function getAttendanceBoard(client: SupabaseClient, groupId: string): Promise<AttendanceRow[]> {
+  const rows = await command<{ membership_id: string; display_name: string; played: number }[]>(
+    client,
+    "attendance_board",
+    { p_group: groupId },
+  );
+  return rows.map((r) => ({ membershipId: r.membership_id, displayName: r.display_name, played: r.played }));
+}
