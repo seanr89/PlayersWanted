@@ -50,6 +50,7 @@ export async function getSquad(client: SupabaseClient, groupId: string): Promise
     .select("id, display_name, role, claim, position, happy_in_goal, created_at, membership_ratings(rating)")
     .eq("group_id", groupId)
     .is("guest_match_id", null)
+    .eq("departed", false)
     .order("created_at");
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => {
@@ -411,6 +412,7 @@ export async function getGuests(client: SupabaseClient, matchId: string): Promis
     .from("memberships")
     .select("id, display_name, sponsor:sponsor_membership_id(display_name), membership_ratings(rating)")
     .eq("guest_match_id", matchId)
+    .eq("departed", false)
     .order("created_at");
   if (error) throw new Error(error.message);
   const average = (await isAdmin(client, match.groupId)) ? averageRating(await getSquad(client, match.groupId)) : undefined;
@@ -658,4 +660,19 @@ export async function getAttendanceBoard(client: SupabaseClient, groupId: string
     { p_group: groupId },
   );
   return rows.map((r) => ({ membershipId: r.membership_id, displayName: r.display_name, played: r.played }));
+}
+
+/** Admin removes a member. Their identity is erased but past appearances stay, anonymised ("Former player"). */
+export async function removeMembership(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "remove_membership", { p_membership: membershipId });
+}
+
+/** Leave a Group at any time (the Owner must transfer ownership or delete the Group first). */
+export async function leaveGroup(client: SupabaseClient, groupId: string): Promise<void> {
+  await command(client, "leave_group", { p_group: groupId });
+}
+
+/** Erase the Person and anonymise their history in every Group. */
+export async function deleteAccount(client: SupabaseClient): Promise<void> {
+  await command(client, "delete_account", {});
 }
