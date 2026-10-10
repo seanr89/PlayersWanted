@@ -49,6 +49,6 @@ npm run test:all                       # unit + integration
 ```
 
 Built so far: groups, ghost profiles, Ratings, invite and claim flow, matches, RSVPs with derived Waitlist and
-late-dropout flag, draft and published Teams, pair rules. Still to do: group settings and role management (promote/demote, transfer, delete), match edit/cancel, guests, the minimal-change fix, results and
+late-dropout flag, draft and published Teams, pair rules, Guests (sponsored, default Rating, promote) and the minimal-change fix after a dropout (propose, confirm, dismiss). Still to do: group settings and role management (promote/demote, transfer, delete), match edit/cancel, results and
 the attendance board, venues and the recurring template, leaving a Group and account deletion, and the
 notification interface (at-risk nudge, share messages).
