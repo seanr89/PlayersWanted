@@ -34,7 +34,7 @@ all pass.
 | #12 | `feat/notifications` | outbox events, at-risk nudge, dispatcher, WhatsApp share messages (018 to 020) | open, based on #11 |
 | #13 | `feat/delivery-worker` | the dispatch route and the email channel | open, based on #12 |
 | #14 | `feat/ui-shell` | the UI: join, start a group, Next match, Matches, Squad, Group (021 to 023) | open, based on #13 |
-| PR_NUMBER | `feat/team-assignment` | the team-assignment screen | open, based on #14 |
+| #15 | `feat/team-assignment` | the team-assignment screen | open, based on #14 |
 
 Merge in that order. `#2` (`m1-core`) is an older, unrelated PR.
 
