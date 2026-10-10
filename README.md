@@ -48,7 +48,11 @@ npm run db:start && npm run test:int   # integration tests against local Supabas
 npm run test:all                       # unit + integration
 ```
 
-Built so far: groups, ghost profiles, Ratings, invite and claim flow, matches, RSVPs with derived Waitlist and
-late-dropout flag, draft and published Teams, pair rules, Guests (sponsored, default Rating, promote) and the minimal-change fix after a dropout (propose, confirm, dismiss). Still to do: group settings and role management (promote/demote, transfer, delete), match edit/cancel, results and
-the attendance board, venues and the recurring template, leaving a Group and account deletion, and the
-notification interface (at-risk nudge, share messages).
+Built so far: groups and settings, roles (promote/demote Admin, transfer ownership, delete Group), ghost profiles,
+Ratings, invite and claim flow, matches (create, edit, cancel), RSVPs with a derived Waitlist and late-dropout flag,
+draft and published Teams, pair rules, Guests, the minimal-change fix after a dropout, score-only Results, a player's
+own record and the Attendance board.
+
+Still to do: the venues and the recurring template, leaving a Group / removing a Membership / account deletion (these
+must anonymise history so Results and attendance stay correct), and the notification interface (at-risk nudge, share
+messages, push and email).

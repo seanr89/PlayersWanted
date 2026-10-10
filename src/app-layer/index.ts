@@ -525,3 +525,137 @@ export async function confirmFix(client: SupabaseClient, matchId: string, fix: F
 export async function dismissFix(client: SupabaseClient, matchId: string, fix: FixProposal): Promise<void> {
   await command(client, "dismiss_fix", { p_match: matchId, p_key: fix.key });
 }
+
+export interface GroupInfo {
+  id: string;
+  name: string;
+  minPlayers: number;
+  showTeamStrength: boolean;
+  myRole: MemberRole;
+}
+
+export async function getGroup(client: SupabaseClient, groupId: string): Promise<GroupInfo> {
+  const { data, error } = await client
+    .from("groups")
+    .select("id, name, min_players, show_team_strength")
+    .eq("id", groupId)
+    .single();
+  if (error) throw new Error(error.message);
+  const myRole = await command<MemberRole>(client, "my_group_role", { p_group: groupId });
+  return {
+    id: data.id,
+    name: data.name,
+    minPlayers: data.min_players,
+    showTeamStrength: data.show_team_strength,
+    myRole,
+  };
+}
+
+export async function getMyGroups(client: SupabaseClient): Promise<{ id: string; name: string; myRole: MemberRole }[]> {
+  const rows = await command<{ id: string; name: string; my_role: MemberRole }[]>(client, "my_groups", {});
+  return rows.map((r) => ({ id: r.id, name: r.name, myRole: r.my_role }));
+}
+
+/** Change any of the Group's name, minimum-players threshold or whether players see team strength. */
+export async function updateGroup(
+  client: SupabaseClient,
+  groupId: string,
+  changes: { name?: string; minPlayers?: number; showTeamStrength?: boolean },
+): Promise<void> {
+  await command(client, "update_group", {
+    p_group: groupId,
+    p_name: changes.name ?? null,
+    p_min_players: changes.minPlayers ?? null,
+    p_show_team_strength: changes.showTeamStrength ?? null,
+  });
+}
+
+export async function promoteToAdmin(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "promote_admin", { p_membership: membershipId });
+}
+
+export async function demoteAdmin(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "demote_admin", { p_membership: membershipId });
+}
+
+export async function transferOwnership(client: SupabaseClient, toMembershipId: string): Promise<void> {
+  await command(client, "transfer_ownership", { p_to: toMembershipId });
+}
+
+export async function deleteGroup(client: SupabaseClient, groupId: string): Promise<void> {
+  await command(client, "delete_group", { p_group: groupId });
+}
+
+/** Edit one Match. Anything left out keeps its current value; `rsvpDeadline: null` removes the deadline. */
+export async function updateMatch(
+  client: SupabaseClient,
+  matchId: string,
+  changes: { startsAt?: Date; capacity?: number; costPerPlayer?: number; rsvpDeadline?: Date | null },
+): Promise<void> {
+  await command(client, "update_match", {
+    p_match: matchId,
+    p_starts_at: changes.startsAt?.toISOString() ?? null,
+    p_capacity: changes.capacity ?? null,
+    p_cost: changes.costPerPlayer ?? null,
+    p_rsvp_deadline: changes.rsvpDeadline?.toISOString() ?? null,
+    p_clear_deadline: changes.rsvpDeadline === null,
+  });
+}
+
+export async function cancelMatch(client: SupabaseClient, matchId: string): Promise<void> {
+  await command(client, "cancel_match", { p_match: matchId });
+}
+
+export interface MatchResult {
+  scoreA: number;
+  scoreB: number;
+}
+
+export interface OwnRecord {
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  /** Matches the Group has played in total, so "played" can be shown as attendance. */
+  groupMatches: number;
+}
+
+export interface AttendanceRow {
+  membershipId: string;
+  displayName: string;
+  played: number;
+}
+
+/** Record the score, or correct a mistyped one. The Match becomes "played". */
+export async function recordResult(client: SupabaseClient, matchId: string, result: MatchResult): Promise<void> {
+  await command(client, "record_result", { p_match: matchId, p_score_a: result.scoreA, p_score_b: result.scoreB });
+}
+
+export async function getResult(client: SupabaseClient, matchId: string): Promise<MatchResult | null> {
+  const { data, error } = await client.from("results").select("score_a, score_b").eq("match_id", matchId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? { scoreA: data.score_a, scoreB: data.score_b } : null;
+}
+
+export async function getOwnRecord(client: SupabaseClient, groupId: string): Promise<OwnRecord> {
+  const [row] = await command<
+    { played: number; won: number; drawn: number; lost: number; group_matches: number }[]
+  >(client, "my_record", { p_group: groupId });
+  return {
+    played: row!.played,
+    won: row!.won,
+    drawn: row!.drawn,
+    lost: row!.lost,
+    groupMatches: row!.group_matches,
+  };
+}
+
+/** How many Matches each member has played. Never wins or Ratings: that would invite arguments. */
+export async function getAttendanceBoard(client: SupabaseClient, groupId: string): Promise<AttendanceRow[]> {
+  const rows = await command<{ membership_id: string; display_name: string; played: number }[]>(
+    client,
+    "attendance_board",
+    { p_group: groupId },
+  );
+  return rows.map((r) => ({ membershipId: r.membership_id, displayName: r.display_name, played: r.played }));
+}
