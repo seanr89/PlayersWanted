@@ -16,7 +16,26 @@ Built so far: the pure team generator (`src/team-generator`, Seam 1 in the spec)
 `generateTeams(players, rules, options)` (ranked splits with balance and rule violations, plus the
 minimal-change fix via `keepCloseTo`) and `scoreSplit` (live Balance meter for a hand-edited split).
 
-The app is Next.js (App Router). `/prototype/teams` is the team-assignment prototype: it runs the real generator on a sample squad with tap-to-swap, a live Balance meter and reshuffle. It is validated by hand, not by tests (the UI is not a test seam in v1).
+The app is Next.js (App Router), mobile-first. It talks to Supabase from the browser with the signed-in user's token only
+(no service key), through the application layer, so row-level security and the permission-checked commands apply.
+
+- Players open an invite link (`/join/<token>`), pick their name or add themselves, and are in. They sign in anonymously
+  behind the scenes: no password. Organisers sign in with an emailed link at `/start`, then name the game.
+- A Group opens on **Next match**: one huge "I'm in" button, who's in and the waitlist, published Teams, and for organisers
+  a strip with the single next step (open RSVPs, nudge, make teams, publish, review a dropout, record the score).
+  The other tabs are **Matches** (list, results, new match), **Squad** (members, confirm or reject claims, add a player)
+  and **Group** (invite link, your profile, leave).
+- `/matches/<id>` is the link used in notifications; it forwards to the right Group.
+
+Copy `.env.example` to `.env.local` (the Supabase and app URL values are enough for the UI). Sign-in links only work for
+addresses on the allow-list in `supabase/config.toml` (`site_url`, `additional_redirect_urls`); add your production
+address there. `/prototype/teams` is the earlier throwaway team-assignment screen on sample data; the real one is still to
+build.
+
+The UI is not a test seam in this project (see the spec), so it is checked by hand. `node e2e/smoke.mjs` drives the real flow
+in headless Chromium at phone size (organiser signs in with a real emailed link, makes a Group and a match, opens RSVPs; a
+player joins from the invite link and taps "I'm in") and saves screenshots to `e2e/shots/`. It needs the local stack, the dev
+server on :3000, and `npx playwright install chromium` once.
 
 ## Local database (Supabase)
 
@@ -98,4 +117,4 @@ keep it **on** for a hosted project, or anyone could register someone else's add
 can trigger at most one "Match at risk" email to Admins per match every ten minutes. Locally, mail goes to Mailpit
 (`http://127.0.0.1:54324`). There is no unsubscribe or per-person preference yet.
 
-Still to do: web push, email opt-out, retry for failed deliveries, and the UI.
+Still to do: web push, email opt-out, retry for failed deliveries.
