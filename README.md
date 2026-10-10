@@ -7,7 +7,7 @@ Specs live in `grill/` (`SPEC.md`, `CONTEXT.md`, `DESIGN.md`).
 
 ```
 npm install
-npm run dev        # Next.js app; try /prototype/teams
+npm run dev        # the Next.js app on http://localhost:3000
 npm run typecheck
 npm test
 ```
@@ -29,12 +29,17 @@ The app is Next.js (App Router), mobile-first. It talks to Supabase from the bro
 
 Copy `.env.example` to `.env.local` (the Supabase and app URL values are enough for the UI). Sign-in links only work for
 addresses on the allow-list in `supabase/config.toml` (`site_url`, `additional_redirect_urls`); add your production
-address there. `/prototype/teams` is the earlier throwaway team-assignment screen on sample data; the real one is still to
-build.
+address there. The **team-assignment screen** (`/g/<group>/matches/<match>/teams`, admin only, reached from the organiser strip on Next match)
+shows both sides with each player's Rating, position and keeper flag. Tap a player, then someone on the other team, to swap
+them; the Balance meter (gap, totals, plain-words issues such as a broken pair rule or no keeper) updates on the device using the
+generator's own scoring, and the swap is saved in the background and rolled back if saving fails. "Next suggestion" steps
+through the generator's ranked list, "Start again" asks first, and "Publish teams" makes them visible to players. A draft that no
+longer matches who is playing is flagged and cannot be published until it is made again. The throwaway prototype it replaced is
+gone.
 
-The UI is not a test seam in this project (see the spec), so it is checked by hand. `node e2e/smoke.mjs` drives the real flow
+The UI is not a test seam in this project (see the spec), so it is checked by hand. `node e2e/smoke.mjs` and `node e2e/teams.mjs` drive the real flows
 in headless Chromium at phone size (organiser signs in with a real emailed link, makes a Group and a match, opens RSVPs; a
-player joins from the invite link and taps "I'm in") and saves screenshots to `e2e/shots/`. It needs the local stack, the dev
+player joins from the invite link and taps "I'm in"; the second script makes teams for eight players, swaps two, checks the swap persists, steps to the next suggestion and publishes) and save screenshots to `e2e/shots/`. It needs the local stack, the dev
 server on :3000, and `npx playwright install chromium` once.
 
 ## Local database (Supabase)

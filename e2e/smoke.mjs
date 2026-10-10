@@ -3,10 +3,7 @@
 //   node e2e/smoke.mjs        (screenshots go to e2e/shots/, which is gitignored)
 import { chromium, devices } from "playwright";
 
-const APP = process.env.APP_URL ?? "http://localhost:3000";
-const MAILPIT = "http://127.0.0.1:54324";
-const shots = new URL("./shots/", import.meta.url).pathname;
-const step = (m) => console.log(`- ${m}`);
+import { APP, magicLinkFor, shots, step } from "./helpers.mjs";
 
 const browser = await chromium.launch();
 const phone = { ...devices["iPhone 13"] };
@@ -17,19 +14,6 @@ const player = await playerCtx.newPage();
 for (const [name, page] of [["admin", admin], ["player", player]]) {
   page.on("pageerror", (e) => console.log(`[${name} page error] ${e.message}`));
   page.on("console", (m) => m.type() === "error" && console.log(`[${name} console] ${m.text()}`));
-}
-
-async function magicLinkFor(email) {
-  for (let i = 0; i < 40; i++) {
-    const found = await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`)).json();
-    if (found.messages?.length) {
-      const msg = await (await fetch(`${MAILPIT}/api/v1/message/${found.messages[0].ID}`)).json();
-      const link = /https?:\/\/[^\s"<>]*verify[^\s"<>]*/.exec(msg.Text + msg.HTML)?.[0];
-      if (link) return link.replaceAll("&amp;", "&");
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error("no magic link arrived");
 }
 
 async function evidence(error) {
