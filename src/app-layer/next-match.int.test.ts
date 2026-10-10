@@ -193,3 +193,19 @@ describe("Several matches", () => {
     expect((await getNextMatchView(sean, groupId)).match?.id).toBe(upcoming);
   });
 });
+
+describe("A match nobody has recorded a result for", () => {
+  it("stays in front of an Admin however long ago it was played, but drops out of a player's view", async () => {
+    const { sean, groupId, member } = await league(["A", "B"], 2);
+    const matchId = await createMatch(sean, groupId, { startsAt: inHours(-72), capacity: 2 });
+    await openRsvps(sean, matchId);
+    for (const n of ["A", "B"]) await setRsvp(member(n).client, matchId, "in");
+    await generateDraftTeams(sean, matchId);
+    await publishTeams(sean, matchId);
+
+    const forAdmin = await getNextMatchView(sean, groupId);
+    expect(forAdmin.match?.id).toBe(matchId);
+    expect(forAdmin.admin?.nextAction).toBe("record_result");
+    expect((await getNextMatchView(member("A").client, groupId)).match).toBeNull();
+  });
+});

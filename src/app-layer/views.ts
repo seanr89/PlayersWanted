@@ -16,6 +16,9 @@ import {
  * Read models shaped per role: what a screen needs in one call, with admin-only fields present only for Admins.
  */
 
+/** Owners and Admins have organiser powers. */
+export const isAdminRole = (role: MemberRole | undefined | null): boolean => role === "owner" || role === "admin";
+
 export interface MyMembership {
   id: string;
   displayName: string;
@@ -67,12 +70,16 @@ export interface NextMatchView {
 /** A match that started this long ago and is still unfinished is treated as forgotten, not "next". */
 const FORGOTTEN_AFTER_MS = 12 * 3600_000;
 
-function pickNext(matches: Match[]): Match | null {
+/**
+ * The earliest unfinished match. Players stop seeing one that started long ago, but an Admin keeps seeing a match
+ * with published Teams until its result is recorded (or it is cancelled), so it is never stranded.
+ */
+function pickNext(matches: Match[], admin: boolean): Match | null {
   const cutoff = Date.now() - FORGOTTEN_AFTER_MS;
   return (
     matches
       .filter((m) => ["scheduled", "rsvps_open", "teams_published"].includes(m.status))
-      .filter((m) => new Date(m.startsAt).getTime() > cutoff)
+      .filter((m) => new Date(m.startsAt).getTime() > cutoff || (admin && m.status === "teams_published"))
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0] ?? null
   );
 }
@@ -80,8 +87,8 @@ function pickNext(matches: Match[]): Match | null {
 export async function getNextMatchView(client: SupabaseClient, groupId: string): Promise<NextMatchView> {
   const [me, group, matches] = await Promise.all([getMyMembership(client, groupId), getGroup(client, groupId), getMatches(client, groupId)]);
   if (!me) throw new Error("you are not in this group");
-  const admin = me.role === "owner" || me.role === "admin";
-  const match = pickNext(matches);
+  const admin = isAdminRole(me.role);
+  const match = pickNext(matches, admin);
   const pendingClaims = admin ? (await getPendingClaims(client, groupId)).length : 0;
 
   const base = { me, groupName: group.name, minPlayers: group.minPlayers };
