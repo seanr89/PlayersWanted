@@ -11,9 +11,12 @@
     "db:start": "supabase start -x studio",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
-    "db:status": "supabase status"
+    "db:status": "supabase status",
+    "test:int": "vitest run -c vitest.int.config.ts",
+    "test:all": "npm test && npm run test:int"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "next": "^16.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
