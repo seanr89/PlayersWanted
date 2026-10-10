@@ -525,3 +525,63 @@ export async function confirmFix(client: SupabaseClient, matchId: string, fix: F
 export async function dismissFix(client: SupabaseClient, matchId: string, fix: FixProposal): Promise<void> {
   await command(client, "dismiss_fix", { p_match: matchId, p_key: fix.key });
 }
+
+export interface GroupInfo {
+  id: string;
+  name: string;
+  minPlayers: number;
+  showTeamStrength: boolean;
+  myRole: MemberRole;
+}
+
+export async function getGroup(client: SupabaseClient, groupId: string): Promise<GroupInfo> {
+  const { data, error } = await client
+    .from("groups")
+    .select("id, name, min_players, show_team_strength")
+    .eq("id", groupId)
+    .single();
+  if (error) throw new Error(error.message);
+  const myRole = await command<MemberRole>(client, "my_group_role", { p_group: groupId });
+  return {
+    id: data.id,
+    name: data.name,
+    minPlayers: data.min_players,
+    showTeamStrength: data.show_team_strength,
+    myRole,
+  };
+}
+
+export async function getMyGroups(client: SupabaseClient): Promise<{ id: string; name: string; myRole: MemberRole }[]> {
+  const rows = await command<{ id: string; name: string; my_role: MemberRole }[]>(client, "my_groups", {});
+  return rows.map((r) => ({ id: r.id, name: r.name, myRole: r.my_role }));
+}
+
+/** Change any of the Group's name, minimum-players threshold or whether players see team strength. */
+export async function updateGroup(
+  client: SupabaseClient,
+  groupId: string,
+  changes: { name?: string; minPlayers?: number; showTeamStrength?: boolean },
+): Promise<void> {
+  await command(client, "update_group", {
+    p_group: groupId,
+    p_name: changes.name ?? null,
+    p_min_players: changes.minPlayers ?? null,
+    p_show_team_strength: changes.showTeamStrength ?? null,
+  });
+}
+
+export async function promoteToAdmin(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "promote_admin", { p_membership: membershipId });
+}
+
+export async function demoteAdmin(client: SupabaseClient, membershipId: string): Promise<void> {
+  await command(client, "demote_admin", { p_membership: membershipId });
+}
+
+export async function transferOwnership(client: SupabaseClient, toMembershipId: string): Promise<void> {
+  await command(client, "transfer_ownership", { p_to: toMembershipId });
+}
+
+export async function deleteGroup(client: SupabaseClient, groupId: string): Promise<void> {
+  await command(client, "delete_group", { p_group: groupId });
+}
