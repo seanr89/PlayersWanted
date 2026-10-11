@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import {
   confirmFix,
@@ -24,9 +25,11 @@ type ShareKind = "rsvps_open" | "match_at_risk" | "teams_published";
 /** The organiser's strip: the one next step for this match, and a way to share it with the group. */
 export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view: NextMatchView; onChanged: () => Promise<void> }) {
   const { client } = useSession();
+  const router = useRouter();
   const action = useAction();
   const admin = view.admin!;
   const match = view.match;
+  const teamsScreen = match ? `/g/${groupId}/matches/${match.id}/teams` : "";
 
   const then = (task: () => Promise<unknown>) =>
     action.run(async () => {
@@ -73,8 +76,17 @@ export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view
     case "generate_teams":
       body = (
         <>
-          <p>{admin.inCount} in. Ready to pick teams.</p>
-          <button className="button primary" disabled={action.busy} onClick={() => then(() => generateDraftTeams(client, match!.id))}>
+          <p>{view.counts.playing} playing. Ready to pick teams.</p>
+          <button
+            className="button primary"
+            disabled={action.busy}
+            onClick={() =>
+              action.run(async () => {
+                await generateDraftTeams(client, match!.id);
+                router.push(teamsScreen);
+              })
+            }
+          >
             Make teams
           </button>
         </>
@@ -85,13 +97,23 @@ export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view
         <>
           <p>Teams are drafted. Players can&apos;t see them yet.</p>
           <div className="row wrap">
-            <button className="button primary" disabled={action.busy} onClick={() => then(() => publishTeams(client, match!.id))}>
-              Publish teams
-            </button>
-            <button className="button quiet" disabled={action.busy} onClick={() => then(() => generateDraftTeams(client, match!.id))}>
-              Make them again
+            <Link className="button primary" href={teamsScreen}>
+              Adjust teams
+            </Link>
+            <button className="button" disabled={action.busy} onClick={() => then(() => publishTeams(client, match!.id))}>
+              Publish as they are
             </button>
           </div>
+        </>
+      );
+      break;
+    case "redo_teams":
+      body = (
+        <>
+          <p>Your drafted teams are out of date: someone dropped out or joined since you made them.</p>
+          <Link className="button primary" href={teamsScreen}>
+            Fix the teams
+          </Link>
         </>
       );
       break;
@@ -105,9 +127,14 @@ export function AdminPanel({ groupId, view, onChanged }: { groupId: string; view
       body = (
         <>
           <p>All sorted. Teams are published.</p>
-          <button className="button quiet" disabled={action.busy} onClick={() => share("teams_published")}>
-            Share teams on WhatsApp
-          </button>
+          <div className="row wrap">
+            <button className="button quiet" disabled={action.busy} onClick={() => share("teams_published")}>
+              Share teams on WhatsApp
+            </button>
+            <Link className="button quiet" href={teamsScreen}>
+              See the balance
+            </Link>
+          </div>
         </>
       );
   }

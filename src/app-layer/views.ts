@@ -1,11 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Player, Rules } from "../team-generator";
 import {
+  fetchMatch,
   getGroup,
   getMatchRsvps,
   getMatches,
+  getPairRules,
   getPendingClaims,
   getProposedFix,
   getTeams,
+  isAdmin,
+  ratedPlayers,
   type ClaimState,
   type Match,
   type MatchTeams,
@@ -40,6 +45,7 @@ export type NextAction =
   | "nudge"
   | "generate_teams"
   | "publish_teams"
+  | "redo_teams"
   | "review_dropout"
   | "record_result"
   | "nothing";
@@ -64,7 +70,14 @@ export interface NextMatchView {
   teams: MatchTeams | null;
   myTeam: "A" | "B" | null;
   /** Present only for Admins. */
-  admin?: { nextAction: NextAction; inCount: number; belowMinimum: boolean; pendingClaims: number };
+  admin?: {
+    nextAction: NextAction;
+    inCount: number;
+    belowMinimum: boolean;
+    pendingClaims: number;
+    /** A draft exists but someone has dropped out or joined since it was made. */
+    draftStale: boolean;
+  };
 }
 
 /** A match that started this long ago and is still unfinished is treated as forgotten, not "next". */
@@ -101,7 +114,9 @@ export async function getNextMatchView(client: SupabaseClient, groupId: string):
       whosIn: [],
       teams: null,
       myTeam: null,
-      ...(admin ? { admin: { nextAction: "create_match" as const, inCount: 0, belowMinimum: false, pendingClaims } } : {}),
+      ...(admin
+        ? { admin: { nextAction: "create_match" as const, inCount: 0, belowMinimum: false, pendingClaims, draftStale: false } }
+        : {}),
     };
   }
 
@@ -140,11 +155,15 @@ export async function getNextMatchView(client: SupabaseClient, groupId: string):
 
   if (admin) {
     const inCount = playing + waitlisted;
+    const playingIds = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+    const onTeams = [...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId);
+    const draftStale = teams?.state === "draft" && !(onTeams.length === playingIds.size && onTeams.every((id) => playingIds.has(id)));
     view.admin = {
-      nextAction: await nextAction(client, match, teams, inCount, group.minPlayers),
+      nextAction: await nextAction(client, match, teams, inCount, group.minPlayers, draftStale),
       inCount,
       belowMinimum: inCount < group.minPlayers,
       pendingClaims,
+      draftStale,
     };
   }
   return view;
@@ -156,12 +175,13 @@ async function nextAction(
   teams: MatchTeams | null,
   inCount: number,
   minPlayers: number,
+  draftStale: boolean,
 ): Promise<NextAction> {
   switch (match.status) {
     case "scheduled":
       return "open_rsvps";
     case "rsvps_open":
-      if (teams?.state === "draft") return "publish_teams";
+      if (teams?.state === "draft") return draftStale ? "redo_teams" : "publish_teams";
       return inCount < minPlayers ? "nudge" : "generate_teams";
     case "teams_published":
       if (await getProposedFix(client, match.id)) return "review_dropout";
@@ -169,4 +189,74 @@ async function nextAction(
     default:
       return "nothing";
   }
+}
+
+export interface AssignedPlayer {
+  membershipId: string;
+  displayName: string;
+  /** Null only for someone who has left since Teams were published: they have no Rating to show. */
+  rating: number | null;
+  position: Player["position"] | null;
+  happyInGoal: boolean;
+  isGuest: boolean;
+}
+
+export interface TeamAssignmentView {
+  match: Match;
+  /** "none" before any Teams are made. */
+  state: "none" | "draft" | "published";
+  teamA: AssignedPlayer[];
+  teamB: AssignedPlayer[];
+  /** Everything the generator needs to score any arrangement on the device (the live Balance meter). */
+  players: Player[];
+  rules: Rules;
+  /** Where in the generator's ranked list the current suggestion came from (0 = best). */
+  rank: number;
+  /** A draft that no longer matches who is playing: someone dropped out or joined since it was made. */
+  stale: boolean;
+}
+
+/** Admin-only: it carries Ratings. Everything the team-assignment screen shows and needs to score a swap. */
+export async function getTeamAssignmentView(client: SupabaseClient, matchId: string): Promise<TeamAssignmentView> {
+  const match = await fetchMatch(client, matchId);
+  if (!(await isAdmin(client, match.groupId))) throw new Error("only an admin can see the team assignment");
+
+  const [rsvps, teams, rules, rankRow] = await Promise.all([
+    getMatchRsvps(client, matchId),
+    getTeams(client, matchId),
+    getPairRules(client, match.groupId),
+    client.from("teams").select("rank").eq("match_id", matchId).maybeSingle(),
+  ]);
+  if (rankRow.error) throw new Error(rankRow.error.message);
+  const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+  const onTeams = new Set([...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId));
+  const players = await ratedPlayers(client, match, new Set([...playing, ...onTeams]));
+  const known = new Map(players.map((p) => [p.id, p]));
+  const guests = new Set(rsvps.filter((r) => r.isGuest).map((r) => r.membershipId));
+
+  const assigned = (side: { membershipId: string; displayName: string }[]): AssignedPlayer[] =>
+    side.map(({ membershipId, displayName }) => {
+      const p = known.get(membershipId);
+      return {
+        membershipId,
+        displayName,
+        rating: p?.rating ?? null,
+        position: p?.position ?? null,
+        happyInGoal: p?.happyInGoal ?? false,
+        isGuest: guests.has(membershipId),
+      };
+    });
+
+  const state = teams?.state ?? "none";
+  const sameAsPlaying = onTeams.size === playing.size && [...onTeams].every((id) => playing.has(id));
+  return {
+    match,
+    state,
+    teamA: assigned(teams?.teamA ?? []),
+    teamB: assigned(teams?.teamB ?? []),
+    players: players.filter((p) => playing.has(p.id) || onTeams.has(p.id)),
+    rules,
+    rank: rankRow.data?.rank ?? 0,
+    stale: state === "draft" && !sameAsPlaying,
+  };
 }
