@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addGhost, createGroup, getSquad, setRating } from "./index";
-import { newUser } from "./test-support";
+import { addGhost, createGroup, getInviteToken, getSquad, joinGroup, setRating } from "./index";
+import { newEmailUser, newUser, sql } from "./test-support";
 
 describe("Group setup", () => {
   it("makes the creator the Owner of a new Group", async () => {
@@ -51,5 +51,30 @@ describe("Group setup", () => {
     await expect(addGhost(stranger, groupId, "Mallory")).rejects.toThrow();
     await expect(setRating(stranger, daveId, 1)).rejects.toThrow();
     expect(await getSquad(stranger, groupId)).toEqual([]);
+  });
+});
+
+describe("Who can start a Group", () => {
+  it("needs a real account when the rule is on, so anonymous sign-in cannot mint unlimited Groups", async () => {
+    const anonymous = await newUser();
+    const organiser = await newEmailUser();
+    sql(`update app_settings set bool_value = true where key = 'require_account_to_create_group'`);
+    try {
+      await expect(createGroup(anonymous, { name: "Spam", ownerName: "Bot" })).rejects.toThrow(/sign in with your email/);
+      await createGroup(organiser.client, { name: "Real", ownerName: "Sean" });
+    } finally {
+      sql(`update app_settings set bool_value = false where key = 'require_account_to_create_group'`);
+    }
+  });
+
+  it("still lets anonymous players join a Group someone else started", async () => {
+    const organiser = await newEmailUser();
+    const groupId = await createGroup(organiser.client, { name: "Real", ownerName: "Sean" });
+    sql(`update app_settings set bool_value = true where key = 'require_account_to_create_group'`);
+    try {
+      await joinGroup(await newUser(), await getInviteToken(organiser.client, groupId), { name: "Priya" });
+    } finally {
+      sql(`update app_settings set bool_value = false where key = 'require_account_to_create_group'`);
+    }
   });
 });

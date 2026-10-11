@@ -68,6 +68,7 @@ export async function getSquad(client: SupabaseClient, groupId: string): Promise
 }
 
 export interface Invite {
+  groupId: string;
   groupName: string;
   ghosts: { id: string; displayName: string }[];
 }

@@ -30,6 +30,7 @@ describe("Invite link", () => {
     const invite = await getInvite(await newUser(), token);
 
     expect(invite.groupName).toBe("Thursday");
+    expect(invite.groupId).toBe(groupId);
     expect(invite.ghosts.map((g) => g.displayName).sort()).toEqual(["Dave", "Mo"]);
   });
 
