@@ -1,21 +1,24 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { addGhost, confirmClaim, getSquad, rejectClaim, type SquadMember } from "../../../../app-layer";
 import { getMyMembership, isAdminRole } from "../../../../app-layer/views";
 import { POSITION_LABEL } from "../../../../ui/format";
 import { ErrorNote, Field, LoadingPage, useTitle } from "../../../../ui/parts";
 import { useSession } from "../../../../ui/session";
+import { HappyInGoalToggle, PlayerEditor } from "../../../../ui/squad/edit-player";
 import { useAction } from "../../../../ui/use-action";
 import { useAsync } from "../../../../ui/use-async";
 
 export default function SquadPage() {
   const { groupId } = useParams<{ groupId: string }>();
+  const [editing, setEditing] = useState<string | null>(null);
+  const editButtons = useRef(new Map<string, HTMLButtonElement>());
   const { client } = useSession();
   const data = useAsync(async () => {
     const [me, squad] = await Promise.all([getMyMembership(client, groupId), getSquad(client, groupId)]);
-    return { squad, admin: isAdminRole(me?.role) };
+    return { squad, admin: isAdminRole(me?.role), myId: me?.id ?? null };
   }, [client, groupId]);
   useTitle("Squad · Bibleague");
 
@@ -28,7 +31,7 @@ export default function SquadPage() {
       </main>
     );
   }
-  const { squad, admin } = data.data;
+  const { squad, admin, myId } = data.data;
   const pending = squad.filter((m) => m.claim === "pending");
 
   return (
@@ -37,9 +40,34 @@ export default function SquadPage() {
       {admin && pending.length > 0 && <PendingClaims people={pending} onChanged={data.reload} />}
       <ul className="list" role="list">
         {squad.map((m) => (
-          <li key={m.id}>
+          <li key={m.id} className={admin || m.id === myId ? "editable" : undefined}>
             <span>{m.displayName}</span>
             <span className="tag">{describe(m, admin)}</span>
+            {admin && editing !== m.id && (
+              <button
+                className="button quiet"
+                aria-label={`Edit ${m.displayName}`}
+                ref={(el) => {
+                  if (el) editButtons.current.set(m.id, el);
+                  else editButtons.current.delete(m.id);
+                }}
+                onClick={() => setEditing(m.id)}
+              >
+                Edit
+              </button>
+            )}
+            {admin && editing === m.id && (
+              <PlayerEditor
+                member={m}
+                onSaved={data.reload}
+                onClose={() => {
+                  setEditing(null);
+                  // The Edit button is remounted, so hand focus back once it exists.
+                  requestAnimationFrame(() => editButtons.current.get(m.id)?.focus());
+                }}
+              />
+            )}
+            {!admin && m.id === myId && <HappyInGoalToggle member={m} onSaved={data.reload} />}
           </li>
         ))}
       </ul>
