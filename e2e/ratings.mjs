@@ -33,13 +33,14 @@ try {
   if ((await slider.inputValue()) !== "50") throw new Error("default Rating is not 50");
   if (!(await form.innerText()).includes("Solid Sunday player")) throw new Error("band label missing");
   if (!(await form.getByRole("button", { name: "Save" }).isDisabled())) throw new Error("Save should be off until something changes");
-  await page.screenshot({ path: `${shots}30-edit-player.png`, fullPage: true });
   // Save must not end up behind the fixed tab bar.
   await form.getByRole("button", { name: "Cancel" }).scrollIntoViewIfNeeded();
   const [saveBottom, tabsTop] = await page.evaluate(() => [
     Math.round(document.querySelector('form[aria-label="Edit Mo"] button.primary').getBoundingClientRect().bottom),
     Math.round(document.querySelector(".tabs").getBoundingClientRect().top),
   ]);
+  // Taken at phone size (not full page) so the fixed tab bar sits where it really does.
+  await page.screenshot({ path: `${shots}30-edit-player.png` });
   if (saveBottom > tabsTop) throw new Error(`Save (bottom ${saveBottom}) is under the tab bar (top ${tabsTop})`);
 
   // 2. Keyboard: arrow keys move the slider and the band follows; then save all three fields.
