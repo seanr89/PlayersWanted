@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cloneElement, useEffect, useId, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useId, useRef, type ReactElement, type ReactNode } from "react";
 
 export function Loading() {
   return (
@@ -70,8 +70,18 @@ export function Confirm({
   onYes: () => void;
   onNo: () => void;
 }) {
+  // A question that appears out of nowhere is not announced, and sits after the buttons that raised it: go to it, and
+  // hand focus back to whatever had it once the question is answered.
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    box.current?.querySelector("button")?.focus();
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
+  }, []);
   return (
-    <div className="note" role="group" aria-label={question}>
+    <div className="note" role="group" aria-label={question} ref={box}>
       <p>{question}</p>
       <div className="row wrap" style={{ marginTop: 8 }}>
         <button className="button" disabled={busy} onClick={onYes}>

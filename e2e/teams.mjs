@@ -134,6 +134,10 @@ try {
   const storedBefore = stored();
   await page.getByRole("button", { name: "Change teams" }).click();
   await page.getByText("Nothing changes for players until you save").waitFor();
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-player"), null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus did not move into the teams on Change teams");
+  });
+  if (!(await page.getByText("Swap two players to enable Save.").isVisible())) throw new Error("no hint about why Save is off");
   if (!(await page.getByRole("button", { name: "Save changes" }).isDisabled())) throw new Error("Save should be off before any change");
   const pubA = await side("A").locator(".player-name").first().innerText();
   const pubB = await side("B").locator(".player-name").first().innerText();
@@ -159,17 +163,49 @@ try {
   await page.screenshot({ path: `${shots}24-teams-changing.png`, fullPage: true });
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("group", { name: /Save these teams/ }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent === "Save and tell players", null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus did not move into the confirmation");
+  });
   await page.getByRole("button", { name: "Keep editing" }).click();
+  await page.waitForFunction(() => document.activeElement?.textContent === "Save changes", null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus did not return to Save changes");
+  });
   if (stored() !== storedBefore) throw new Error("declining the confirmation still saved");
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("button", { name: "Save and tell players" }).click();
   await page.getByText("Saved. Players have been told").waitFor();
+  if ((await page.getByText("your edits were dropped").count()) !== 0) throw new Error("a successful save claimed the edits were dropped");
+  await page.waitForFunction(() => document.activeElement?.textContent === "Change teams", null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus did not return to Change teams");
+  });
   if (stored() === storedBefore) throw new Error("saving did not change the teams");
   if (revision() !== "1") throw new Error(`revision is ${revision()}`);
   if (eventCount() !== "1") throw new Error(`expected one teams_changed event, got ${eventCount()}`);
   await page.getByRole("button", { name: "Change teams" }).waitFor();
   await page.screenshot({ path: `${shots}25-teams-changed.png`, fullPage: true });
   step("saved after confirming: stored, revision 1, one notification");
+
+  // 8. Cancel throws the edits away and says so; a second Admin's stale change is refused, not merged.
+  await page.getByRole("button", { name: "Change teams" }).click();
+  await side("A").locator(".player").first().click();
+  await side("B").locator(".player").first().click();
+  const stored2 = stored();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Change teams" }).waitFor();
+  if (stored() !== stored2) throw new Error("cancel stored something");
+  if ((await page.locator('[role="status"]').first().innerText()).includes("Swapped")) throw new Error("stale 'Swapped' announcement after cancel");
+  step("cancel discards and announces it");
+
+  await page.getByRole("button", { name: "Change teams" }).click();
+  await side("A").locator(".player").first().click();
+  await side("B").locator(".player").first().click();
+  // Meanwhile someone else changes the teams (as a second Admin would).
+  sql(`update teams set revision = revision + 1 where match_id = (select id from matches where group_id = '${groupId}')`);
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("button", { name: "Save and tell players" }).click();
+  await page.getByText(/changed since you opened them/).waitFor();
+  if (eventCount() !== "1") throw new Error("a refused save still notified players");
+  step("a stale screen is refused with a clear message");
 } catch (error) {
   await fail(error);
 }

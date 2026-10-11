@@ -204,6 +204,7 @@ describe("Teams", () => {
     await changePublishedTeams(sean, matchId, {
       teamA: [teams.teamB[0]!.membershipId, teams.teamA[1]!.membershipId],
       teamB: [teams.teamA[0]!.membershipId, teams.teamB[1]!.membershipId],
+      revision: teams.revision,
     });
 
     const [note] = await deliver(groupId);

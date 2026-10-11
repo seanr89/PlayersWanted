@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { changePublishedTeams, generateDraftTeams, publishTeams, reshuffleDraftTeams, swapPlayers } from "../../app-layer";
 import { getTeamAssignmentView, type AssignedPlayer, type TeamAssignmentView } from "../../app-layer/views";
 import type { Violation } from "../../team-generator";
@@ -32,12 +32,27 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
   // Edits to published teams, valid only for the teams they were started from (see `activeChange`).
   const [changing, setChanging] = useState<{ baseKey: string; arrangement: Arrangement } | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
+  const [lostNote, setLostNote] = useState(false);
+  // The arrangement (as a key) that was last saved, so "Saved" shows only while those are still the teams.
+  const [savedKey, setSavedKey] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   useTitle("Teams · Bibleague");
 
   const data = view.data;
   const byId = useMemo(() => new Map(data ? [...data.teamA, ...data.teamB].map((p) => [p.membershipId, p]) : []), [data]);
+
+  const serverKey = data ? keyOf(arrangementOf(data)) : null;
+  const canChange = data?.state === "published" && data.match.status === "teams_published" && !data.needsFix;
+  // Unlike the draft, edits to published teams are not saved as you go, so they must survive the screen's refresh. They
+  // are dropped only if the saved teams changed underneath them (another Admin's change, or a dropout).
+  const lost = changing !== null && (!canChange || changing.baseKey !== serverKey);
+  useEffect(() => {
+    if (!lost) return;
+    setChanging(null);
+    setConfirmSave(false);
+    setPicked(null);
+    setLostNote(true);
+  }, [lost]);
 
   if (view.loading && !data) return <LoadingPage />;
   if (!data) {
@@ -52,12 +67,8 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     );
   }
 
-  const serverArrangement: Arrangement = { a: data.teamA.map((p) => p.membershipId), b: data.teamB.map((p) => p.membershipId) };
-  const canChange = data.state === "published" && data.match.status === "teams_published" && !data.needsFix;
-  // Unlike the draft, these edits are not saved as you go, so they must survive the screen's refresh. They are dropped
-  // only if the saved teams themselves changed underneath them (someone else's change, or a dropout).
-  const activeChange = changing && canChange && changing.baseKey === keyOf(serverArrangement) ? changing : null;
-  const lostChange = changing !== null && activeChange === null;
+  const serverArrangement = arrangementOf(data);
+  const activeChange = lost ? null : changing;
   const arrangement = activeChange?.arrangement ?? (local?.base === data ? local.arrangement : serverArrangement);
   const unchanged = keyOf(arrangement) === keyOf(serverArrangement);
   const reason = unavailableReason(data, arrangement);
@@ -80,7 +91,7 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     setPicked(null);
     setAnnouncement(`Swapped ${byId.get(first)?.displayName} and ${byId.get(id)?.displayName}.`);
     // Keep focus on the player who moved, so keyboard and screen-reader users are not thrown back to the top.
-    const refocus = () => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-player="${id}"]`)?.focus());
+    const refocus = () => focusSoon(`[data-player="${id}"]`);
     if (activeChange) {
       setConfirmSave(false);
       setChanging({ ...activeChange, arrangement: swap(arrangement, first, id) });
@@ -104,20 +115,27 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
   const startChanging = () => {
     setPicked(null);
     setAnnouncement("");
-    setJustSaved(false);
+    setLostNote(false);
     setChanging({ baseKey: keyOf(serverArrangement), arrangement: serverArrangement });
+    focusSoon("[data-player]");
   };
-  const stopChanging = () => {
+  const stopChanging = (announce: string) => {
     setChanging(null);
     setPicked(null);
     setConfirmSave(false);
+    setAnnouncement(announce);
+    focusSoon('[data-focus="change"]');
   };
   const saveChanges = async () => {
-    const saved = await saveThenReload(() => changePublishedTeams(client, matchId, { teamA: arrangement.a, teamB: arrangement.b }));
+    const saved = await action.run(async () => {
+      await changePublishedTeams(client, matchId, { teamA: arrangement.a, teamB: arrangement.b, revision: data.revision });
+      // Leave change mode before reloading: the reloaded teams would otherwise look like they changed under the edits.
+      setChanging(null);
+      await view.reload();
+    });
     if (saved) {
-      stopChanging();
-      setJustSaved(true);
-      setAnnouncement("Teams changed. Players have been told.");
+      setSavedKey(keyOf(arrangement));
+      stopChanging("Teams changed. Players have been told.");
     }
   };
   const regenerate = () => startOver(() => generateDraftTeams(client, matchId));
@@ -164,17 +182,18 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
         </p>
       )}
       {activeChange && (
-        <p className="note">You&apos;re changing the published teams. Nothing changes for players until you save.</p>
+        <p className="note">
+          You&apos;re changing the published teams. Nothing changes for players until you save.
+          {unchanged && " Swap two players to enable Save."}
+        </p>
       )}
-      {lostChange && (
+      {lostNote && !activeChange && (
         <p className="note" role="alert">
           These teams changed while you were editing, so your edits were dropped.
         </p>
       )}
-      {justSaved && (
-        <p className="note" role="status">
-          Saved. Players have been told the teams changed.
-        </p>
+      {savedKey !== null && savedKey === serverKey && !activeChange && (
+        <p className="note">Saved. Players have been told the teams changed.</p>
       )}
       {reason === "left" && (
         <p className="note">Someone on these teams has left the group, so the balance can&apos;t be worked out.</p>
@@ -201,10 +220,15 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
       {canChange &&
         (activeChange ? (
           <div className="stack">
-            <button className="button primary block" disabled={action.busy || unchanged} onClick={() => setConfirmSave(true)}>
+            <button
+              className="button primary block"
+              data-focus="save"
+              disabled={action.busy || unchanged}
+              onClick={() => setConfirmSave(true)}
+            >
               Save changes
             </button>
-            <button className="button quiet block" disabled={action.busy} onClick={stopChanging}>
+            <button className="button quiet block" disabled={action.busy} onClick={() => stopChanging("Changes discarded.")}>
               Cancel
             </button>
             {confirmSave && (
@@ -214,12 +238,15 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
                 no="Keep editing"
                 busy={action.busy}
                 onYes={saveChanges}
-                onNo={() => setConfirmSave(false)}
+                onNo={() => {
+                  setConfirmSave(false);
+                  focusSoon('[data-focus="save"]');
+                }}
               />
             )}
           </div>
         ) : (
-          <button className="button block" disabled={action.busy} onClick={startChanging}>
+          <button className="button block" data-focus="change" disabled={action.busy} onClick={startChanging}>
             Change teams
           </button>
         ))}
@@ -264,6 +291,14 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     </main>
   );
 }
+
+const arrangementOf = (view: TeamAssignmentView): Arrangement => ({
+  a: view.teamA.map((p) => p.membershipId),
+  b: view.teamB.map((p) => p.membershipId),
+});
+
+/** Moves keyboard focus once React has put the new screen in place. */
+const focusSoon = (selector: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus());
 
 /** The same teams, whatever order they are listed in. Which side a player is on matters, so A and B stay distinct. */
 const keyOf = (arrangement: Arrangement) => `${[...arrangement.a].sort().join(",")}|${[...arrangement.b].sort().join(",")}`;

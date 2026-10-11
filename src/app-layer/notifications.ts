@@ -168,6 +168,9 @@ async function loadContext(client: SupabaseClient, matchId: string): Promise<Mes
   };
 }
 
+/** Set by the database on a `teams_changed` event when an Admin rearranged published Teams (otherwise it was a dropout fix). */
+const ORGANISER_CHANGE = "organiser_change";
+
 /** The wording for each kind of message. Never mentions Ratings: Teams are listed by name only. */
 function compose(
   kind: NotificationKind,
@@ -204,7 +207,7 @@ function compose(
       };
     case "teams_changed": {
       const what =
-        options.reason === "organiser_change"
+        options.reason === ORGANISER_CHANGE
           ? `The organiser has changed the teams for ${ctx.groupName} (${when}).`
           : `Someone dropped out, so the teams for ${ctx.groupName} (${when}) have changed.`;
       return {

@@ -216,6 +216,8 @@ export interface TeamAssignmentView {
   stale: boolean;
   /** Published Teams that still list someone who dropped out: the dropout fix has to come before any other change. */
   needsFix: boolean;
+  /** Bumped on every confirmed change to published Teams; `changePublishedTeams` must be given the one the Admin saw. */
+  revision: number;
 }
 
 /** Admin-only: it carries Ratings. Everything the team-assignment screen shows and needs to score a swap. */
@@ -231,6 +233,8 @@ export async function getTeamAssignmentView(client: SupabaseClient, matchId: str
   ]);
   if (rankRow.error) throw new Error(rankRow.error.message);
   const playing = new Set(rsvps.filter((r) => r.status === "playing").map((r) => r.membershipId));
+  // The database decides "has dropped out" by the RSVP itself (not the derived Waitlist status), so this does too.
+  const saidIn = new Set(rsvps.filter((r) => r.response === "in").map((r) => r.membershipId));
   const onTeams = new Set([...(teams?.teamA ?? []), ...(teams?.teamB ?? [])].map((p) => p.membershipId));
   const players = await ratedPlayers(client, match, new Set([...playing, ...onTeams]));
   const known = new Map(players.map((p) => [p.id, p]));
@@ -260,6 +264,7 @@ export async function getTeamAssignmentView(client: SupabaseClient, matchId: str
     rules,
     rank: rankRow.data?.rank ?? 0,
     stale: state === "draft" && !sameAsPlaying,
-    needsFix: state === "published" && [...onTeams].some((id) => !playing.has(id)),
+    needsFix: state === "published" && [...onTeams].some((id) => !saidIn.has(id)),
+    revision: teams?.revision ?? 0,
   };
 }

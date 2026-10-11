@@ -1,8 +1,12 @@
 -- An Admin rearranging published Teams (spec: "any change to Teams (swap, reshuffle, fix) requires an explicit Admin
 -- action. Each confirmed change notifies players"). Only the same players change sides: adding or removing someone
 -- is the dropout fix's job (confirm_fix), which also has to follow the Waitlist.
+--
+-- The caller passes the revision it was looking at, so a second Admin working from a stale screen is refused instead of
+-- silently overwriting the first. The match row is locked (confirm_fix takes the same lock, see migration 025), so two
+-- saves, or a save and a fix, run one after the other and each validates against what the other left behind.
 
-create function change_published_teams(p_match uuid, p_team_a uuid[], p_team_b uuid[]) returns void
+create function change_published_teams(p_match uuid, p_team_a uuid[], p_team_b uuid[], p_revision int) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_match matches;
@@ -11,9 +15,12 @@ declare
   v_still int;
   v_unchanged boolean;
 begin
-  select * into v_match from matches where id = p_match;
+  select * into v_match from matches where id = p_match for update;
   if not found or not is_group_admin(v_match.group_id) then raise exception 'only an admin can change the teams'; end if;
   if v_match.status <> 'teams_published' then raise exception 'there are no published teams to change'; end if;
+  if (select revision from teams where match_id = p_match) is distinct from p_revision then
+    raise exception 'the teams have changed since you opened them: reload and try again';
+  end if;
   if p_team_a is null or p_team_b is null then raise exception 'a change must list both teams'; end if;
   if cardinality(p_team_a) = 0 or cardinality(p_team_b) = 0 then raise exception 'each team needs at least one player'; end if;
   v_new := p_team_a || p_team_b;

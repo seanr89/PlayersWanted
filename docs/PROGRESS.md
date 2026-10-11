@@ -22,13 +22,13 @@ stacked PR. Keep doing it that way.
 
 ## Status
 
-Test counts at this point: 71 unit, 250 integration, 23 migrations. `npm run test:all`, `npm run typecheck` and `npx next build`
+Test counts at this point: 71 unit, 263 integration, 25 migrations. `npm run test:all`, `npm run typecheck` and `npx next build`
 all pass.
 
 ### Pull requests
 
-#3 to #9 and #11 to #15 (generator through the team-assignment screen) are all merged into `main`. `#2` (`m1-core`) is an older,
-unrelated PR. Current work: `feat/rating-editing` (Squad editing, below), branched from `main`.
+#3 to #9, #11 to #15 and #17 (generator through Squad editing) are all merged into `main`. `#2` (`m1-core`) is an older,
+unrelated PR. Current work: `feat/swap-after-publish` (changing published Teams, below), branched from `main`.
 
 ### Migrations
 
@@ -36,7 +36,7 @@ unrelated PR. Current work: `feat/rating-editing` (Squad editing, below), branch
 007 minimal-change fix, 008 guest and fix hardening, 009 roles and settings, 010 match edit and cancel, 011 results and
 attendance, 012 review fixes, 013 removal and anonymisation, 014 privacy fixes, 015 venues, 016 recurring template, 017 venue and
 template fixes, 018 notifications, 019 notification fixes, 020 at-risk cooldown, 021 `my_membership`, 022 group id on invites,
-023 require a real account to start a group.
+023 require a real account to start a group, 024 change published Teams, 025 `confirm_fix` locks the match.
 
 ### Spec coverage
 
@@ -48,24 +48,28 @@ Group, removing a Membership, deleting an account, notifications, WhatsApp share
 Built in the UI: invite and claim flow, starting a group (emailed link), Next match (player and organiser), Matches (list, results,
 new match, cancel), Squad (members, claims, add a player), Group (invite link, profile, "keep your place", leave), the
 team-assignment screen, and editing a player's Rating (slider with labelled bands), position tag and happy-in-goal from Squad
-(admins edit anyone; a player ticks their own happy-in-goal). Check it with `node e2e/ratings.mjs`.
+(admins edit anyone; a player ticks their own happy-in-goal), and changing published Teams ("Change teams" on the team screen: swaps stay on the device until the admin saves and confirms, then players are told once). Check them with `node e2e/ratings.mjs` and `node e2e/teams.mjs`.
 
 ## Not built yet (a good order to do it in)
 
-1. **Swapping players after Teams are published** (spec: "any change to Teams ... requires an explicit Admin action", each change
-   notifying players). Needs its own command, a revision bump and a `teams_changed` event. Today only the dropout fix changes
-   published Teams.
-2. **Story 85**: players seeing a team-strength comparison when the organiser turns it on (totals only, never Ratings; needs its own
+1. **Story 85**: players seeing a team-strength comparison when the organiser turns it on (totals only, never Ratings; needs its own
    server-side check).
-3. **UI for what exists in the application layer**: venue and recurring-template forms, group settings, promote/demote Admin and
+2. **UI for what exists in the application layer**: venue and recurring-template forms, group settings, promote/demote Admin and
    transfer ownership, add a Guest, removing a member, a player's own record and the Attendance board.
-4. **PWA install** (manifest, icons, service worker), **web push** (which forces the "email only as a fallback" change: a channel
+3. **PWA install** (manifest, icons, service worker), **web push** (which forces the "email only as a fallback" change: a channel
    must report who it reached), **realtime live in-count** (RSVPs are admin-only under row-level security, so it needs a design;
    the screen polls every 20 to 30 seconds for now).
-5. **Google and Apple sign-in** (organisers use an emailed link only), **a strict script CSP** (basic security headers are set),
+4. **Google and Apple sign-in** (organisers use an emailed link only), **a strict script CSP** (basic security headers are set),
    **recovery for a player who lost an anonymous identity**, email opt-out, retry and persistence for failed deliveries.
 
 ## Decisions that differ from, or go beyond, the spec
+
+- Changing published Teams is a manual rearrangement of the same players (`change_published_teams`). The spec's "(swap, reshuffle,
+  fix)" is covered by it for swaps and by `confirm_fix` for dropouts; a generator-driven "next suggestion" after publishing does
+  not exist (any split can still be reached by hand). The command takes the revision the Admin was looking at and refuses with
+  "the teams have changed since you opened them" if it moved, locks the match row (as `confirm_fix` now does), and refuses while
+  someone on the Teams has dropped out (confirm the fix first). It does not balance-check or limit team sizes: any split of the
+  same players is accepted, and swapping the two whole sides counts as a change.
 
 - Team ranking is a weighted cost in Rating points (broken pair 100, no keeper 30, position imbalance 5 per unit), not strictly
   "balance first". There are 126 distinct splits of 10 players (the spec says 252, counting A and B as different). A `GK` tag counts as
