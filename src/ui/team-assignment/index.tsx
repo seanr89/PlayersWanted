@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { generateDraftTeams, publishTeams, reshuffleDraftTeams, swapPlayers } from "../../app-layer";
+import { changePublishedTeams, generateDraftTeams, publishTeams, reshuffleDraftTeams, swapPlayers } from "../../app-layer";
 import { getTeamAssignmentView, type AssignedPlayer, type TeamAssignmentView } from "../../app-layer/views";
 import type { Violation } from "../../team-generator";
 import { POSITION_LABEL, formatWhen } from "../format";
@@ -16,7 +16,9 @@ import { TONE_LABEL, hasBeenEdited, scoreArrangement, swap, unavailableReason, t
 /**
  * Pick and tweak the teams. Tap a player, then a player on the other team, to swap them. The Balance meter updates
  * on the spot (scored on the device by the generator's own scoring); the swap is saved in the background and rolled
- * back if saving fails. Teams stay a private draft until published.
+ * back if saving fails. Teams stay a private draft until published. Once published, an Admin can still change them
+ * ("Change teams"), but there the swaps stay on the device until they save, so players are told once and never see
+ * a half-finished arrangement.
  */
 export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId: string }) {
   const { client } = useSession();
@@ -27,6 +29,10 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
   const [local, setLocal] = useState<{ base: TeamAssignmentView; arrangement: Arrangement } | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [asking, setAsking] = useState<"next" | "again" | null>(null);
+  // Edits to published teams, valid only for the teams they were started from (see `activeChange`).
+  const [changing, setChanging] = useState<{ baseKey: string; arrangement: Arrangement } | null>(null);
+  const [confirmSave, setConfirmSave] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   useTitle("Teams · Bibleague");
 
@@ -47,11 +53,17 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
   }
 
   const serverArrangement: Arrangement = { a: data.teamA.map((p) => p.membershipId), b: data.teamB.map((p) => p.membershipId) };
-  const arrangement = local?.base === data ? local.arrangement : serverArrangement;
+  const canChange = data.state === "published" && data.match.status === "teams_published" && !data.needsFix;
+  // Unlike the draft, these edits are not saved as you go, so they must survive the screen's refresh. They are dropped
+  // only if the saved teams themselves changed underneath them (someone else's change, or a dropout).
+  const activeChange = changing && canChange && changing.baseKey === keyOf(serverArrangement) ? changing : null;
+  const lostChange = changing !== null && activeChange === null;
+  const arrangement = activeChange?.arrangement ?? (local?.base === data ? local.arrangement : serverArrangement);
+  const unchanged = keyOf(arrangement) === keyOf(serverArrangement);
   const reason = unavailableReason(data, arrangement);
   const score = data.state !== "none" && !reason ? scoreArrangement(data, arrangement) : null;
   const open = data.match.status === "rsvps_open";
-  const editable = data.state === "draft" && !data.stale && open;
+  const editable = (data.state === "draft" && !data.stale && open) || activeChange !== null;
   const pickedId = picked && byId.has(picked) ? picked : null;
 
   const saveThenReload = (task: () => Promise<unknown>) =>
@@ -65,11 +77,16 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     if (pickedId === null || pickedId === id) return setPicked(pickedId === id ? null : id);
     if (arrangement.a.includes(pickedId) === arrangement.a.includes(id)) return setPicked(id); // same team: pick this one instead
     const first = pickedId;
-    setLocal({ base: data!, arrangement: swap(arrangement, first, id) });
     setPicked(null);
     setAnnouncement(`Swapped ${byId.get(first)?.displayName} and ${byId.get(id)?.displayName}.`);
     // Keep focus on the player who moved, so keyboard and screen-reader users are not thrown back to the top.
     const refocus = () => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-player="${id}"]`)?.focus());
+    if (activeChange) {
+      setConfirmSave(false);
+      setChanging({ ...activeChange, arrangement: swap(arrangement, first, id) });
+      return refocus();
+    }
+    setLocal({ base: data!, arrangement: swap(arrangement, first, id) });
     refocus();
     const saved = await saveThenReload(() => swapPlayers(client, matchId, first, id));
     if (saved) refocus();
@@ -83,6 +100,25 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     setPicked(null);
     setAnnouncement("");
     return saveThenReload(task);
+  };
+  const startChanging = () => {
+    setPicked(null);
+    setAnnouncement("");
+    setJustSaved(false);
+    setChanging({ baseKey: keyOf(serverArrangement), arrangement: serverArrangement });
+  };
+  const stopChanging = () => {
+    setChanging(null);
+    setPicked(null);
+    setConfirmSave(false);
+  };
+  const saveChanges = async () => {
+    const saved = await saveThenReload(() => changePublishedTeams(client, matchId, { teamA: arrangement.a, teamB: arrangement.b }));
+    if (saved) {
+      stopChanging();
+      setJustSaved(true);
+      setAnnouncement("Teams changed. Players have been told.");
+    }
   };
   const regenerate = () => startOver(() => generateDraftTeams(client, matchId));
   const reshuffle = () => startOver(() => reshuffleDraftTeams(client, matchId));
@@ -120,10 +156,24 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
       {!open && data.state !== "published" && (
         <p className="note">This match is {data.match.status.replace("_", " ")}, so its teams can&apos;t be changed.</p>
       )}
-      {data.state === "published" && (
+      {data.state === "published" && !activeChange && (
         <p className="note">
-          These teams are published, so players can see them. To change them after a dropout, use the fix on the next match
-          screen.
+          {data.needsFix
+            ? "Someone on these teams has dropped out. Confirm the fix on the next match screen before changing the teams."
+            : "These teams are published, so players can see them. After a dropout, use the fix on the next match screen."}
+        </p>
+      )}
+      {activeChange && (
+        <p className="note">You&apos;re changing the published teams. Nothing changes for players until you save.</p>
+      )}
+      {lostChange && (
+        <p className="note" role="alert">
+          These teams changed while you were editing, so your edits were dropped.
+        </p>
+      )}
+      {justSaved && (
+        <p className="note" role="status">
+          Saved. Players have been told the teams changed.
         </p>
       )}
       {reason === "left" && (
@@ -147,6 +197,32 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
           <Side label="B" ids={arrangement.b} byId={byId} picked={pickedId} editable={editable} onTap={tap} />
         </div>
       )}
+
+      {canChange &&
+        (activeChange ? (
+          <div className="stack">
+            <button className="button primary block" disabled={action.busy || unchanged} onClick={() => setConfirmSave(true)}>
+              Save changes
+            </button>
+            <button className="button quiet block" disabled={action.busy} onClick={stopChanging}>
+              Cancel
+            </button>
+            {confirmSave && (
+              <Confirm
+                question="Save these teams? Players are told straight away that the teams have changed."
+                yes="Save and tell players"
+                no="Keep editing"
+                busy={action.busy}
+                onYes={saveChanges}
+                onNo={() => setConfirmSave(false)}
+              />
+            )}
+          </div>
+        ) : (
+          <button className="button block" disabled={action.busy} onClick={startChanging}>
+            Change teams
+          </button>
+        ))}
 
       {data.state === "draft" && (
         <div className="stack">
@@ -188,6 +264,9 @@ export function TeamAssignment({ groupId, matchId }: { groupId: string; matchId:
     </main>
   );
 }
+
+/** The same teams, whatever order they are listed in. Which side a player is on matters, so A and B stay distinct. */
+const keyOf = (arrangement: Arrangement) => `${[...arrangement.a].sort().join(",")}|${[...arrangement.b].sort().join(",")}`;
 
 function BalanceMeter({ score, announcement }: { score: Score; announcement: string }) {
   const total = score.totalA + score.totalB;

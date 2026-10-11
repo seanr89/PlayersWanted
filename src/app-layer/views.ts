@@ -214,6 +214,8 @@ export interface TeamAssignmentView {
   rank: number;
   /** A draft that no longer matches who is playing: someone dropped out or joined since it was made. */
   stale: boolean;
+  /** Published Teams that still list someone who dropped out: the dropout fix has to come before any other change. */
+  needsFix: boolean;
 }
 
 /** Admin-only: it carries Ratings. Everything the team-assignment screen shows and needs to score a swap. */
@@ -258,5 +260,6 @@ export async function getTeamAssignmentView(client: SupabaseClient, matchId: str
     rules,
     rank: rankRow.data?.rank ?? 0,
     stale: state === "draft" && !sameAsPlaying,
+    needsFix: state === "published" && [...onTeams].some((id) => !playing.has(id)),
   };
 }

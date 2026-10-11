@@ -538,6 +538,18 @@ export async function confirmFix(client: SupabaseClient, matchId: string, fix: F
   });
 }
 
+/**
+ * An Admin rearranging the same players on published Teams. Players are told, and the revision goes up. A dropout is
+ * dealt with by `confirmFix` first; the database refuses to add or remove anyone here.
+ */
+export async function changePublishedTeams(
+  client: SupabaseClient,
+  matchId: string,
+  teams: { teamA: string[]; teamB: string[] },
+): Promise<void> {
+  await command(client, "change_published_teams", { p_match: matchId, p_team_a: teams.teamA, p_team_b: teams.teamB });
+}
+
 export async function dismissFix(client: SupabaseClient, matchId: string, fix: FixProposal): Promise<void> {
   await command(client, "dismiss_fix", { p_match: matchId, p_key: fix.key });
 }

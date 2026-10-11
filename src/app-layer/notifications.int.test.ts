@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addGhost,
   cancelMatch,
+  changePublishedTeams,
   confirmFix,
   createGroup,
   createMatch,
@@ -10,6 +11,7 @@ import {
   generateDraftTeams,
   getInviteToken,
   getProposedFix,
+  getTeams,
   joinGroup,
   leaveGroup,
   openRsvps,
@@ -190,6 +192,29 @@ describe("Teams", () => {
 
     const [note] = await deliver(groupId);
     expect(note).toMatchObject({ kind: "teams_changed", matchId, payload: { revision: 1 } });
+    expect(note!.body).toContain("dropped out");
+  });
+
+  it("tells every member when the organiser changes published Teams, without blaming a dropout", async () => {
+    const { sean, groupId, matchId } = await published();
+    await publishTeams(sean, matchId);
+    await deliver(groupId);
+    const teams = (await getTeams(sean, matchId))!;
+
+    await changePublishedTeams(sean, matchId, {
+      teamA: [teams.teamB[0]!.membershipId, teams.teamA[1]!.membershipId],
+      teamB: [teams.teamA[0]!.membershipId, teams.teamB[1]!.membershipId],
+    });
+
+    const [note] = await deliver(groupId);
+    expect(note).toMatchObject({
+      kind: "teams_changed",
+      matchId,
+      payload: { revision: 1, reason: "organiser_change" },
+    });
+    expect(note!.body).not.toContain("dropped out");
+    expect(note!.body).toContain("organiser");
+    expect(names(note!)).toEqual(["A", "B", "C", "D", "Sean"]);
   });
 });
 

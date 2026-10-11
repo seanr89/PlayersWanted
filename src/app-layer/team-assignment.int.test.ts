@@ -128,6 +128,29 @@ describe("The team-assignment view", () => {
 
     expect(view.state).toBe("published");
     expect(view.stale).toBe(false);
+    expect(view.needsFix).toBe(false);
+  });
+
+  it("says published teams need the dropout fix first once someone on them drops out", async () => {
+    const { sean, matchId, ids } = await matchWith({ A: 80, B: 70, C: 60, D: 50 }, 4);
+    await generateDraftTeams(sean, matchId);
+    await publishTeams(sean, matchId);
+    expect((await getTeamAssignmentView(sean, matchId)).needsFix).toBe(false);
+
+    await setRsvp(sean, matchId, "out", { onBehalfOf: ids.D! });
+
+    expect((await getTeamAssignmentView(sean, matchId)).needsFix).toBe(true);
+  });
+
+  it("never asks for a fix on a draft", async () => {
+    const { sean, matchId, ids } = await matchWith({ A: 80, B: 70, C: 60, D: 50 }, 4);
+    await generateDraftTeams(sean, matchId);
+    await setRsvp(sean, matchId, "out", { onBehalfOf: ids.D! });
+
+    const view = await getTeamAssignmentView(sean, matchId);
+
+    expect(view.stale).toBe(true);
+    expect(view.needsFix).toBe(false);
   });
 
   it("is for Admins only, because it carries Ratings", async () => {

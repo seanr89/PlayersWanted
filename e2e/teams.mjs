@@ -123,7 +123,53 @@ try {
   await page.getByText("These teams are published").waitFor();
   if ((await side("A").locator("button.player").count()) > 0) throw new Error("published teams should not be editable");
   if ((await side("A").locator(".player").count()) !== 4) throw new Error("published teams should still be listed");
-  step("published teams are read-only");
+  step("published teams are read-only until you ask to change them");
+
+  // 7. Change teams: swaps stay on the device until saved; saving asks first and tells players.
+  const stored = () =>
+    sql(`select string_agg(side || ':' || display_name, ',' order by display_name) from team_players tp
+         join memberships m on m.id = tp.membership_id where tp.match_id = (select id from matches where group_id = '${groupId}')`);
+  const revision = () => sql(`select revision from teams where match_id = (select id from matches where group_id = '${groupId}')`);
+  const eventCount = () => sql(`select count(*) from notification_events where kind = 'teams_changed' and group_id = '${groupId}'`);
+  const storedBefore = stored();
+  await page.getByRole("button", { name: "Change teams" }).click();
+  await page.getByText("Nothing changes for players until you save").waitFor();
+  if (!(await page.getByRole("button", { name: "Save changes" }).isDisabled())) throw new Error("Save should be off before any change");
+  const pubA = await side("A").locator(".player-name").first().innerText();
+  const pubB = await side("B").locator(".player-name").first().innerText();
+  const gapBefore = await gapText();
+  await side("A").locator(".player").first().click();
+  await side("B").locator(".player").first().click();
+  await side("A").locator(".player-name", { hasText: pubB }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-player"), null, { timeout: 3000 }).catch(() => {
+    throw new Error("focus was lost after the swap");
+  });
+  step(`swapped ${pubA} and ${pubB} while changing: ${gapBefore} -> ${await gapText()}`);
+  if (stored() !== storedBefore) throw new Error("a swap reached the database before Save");
+  // Reloading the page abandons the unsaved change. (Surviving the 30s background refresh is by design, not checked here.)
+  await page.reload();
+  await page.getByRole("heading", { name: "Balance" }).waitFor();
+  if (!(await page.getByRole("button", { name: "Change teams" }).isVisible())) throw new Error("a reload should leave change mode");
+  if (stored() !== storedBefore) throw new Error("unsaved changes were stored");
+  step("unsaved swaps are not stored, and a reload drops them");
+
+  await page.getByRole("button", { name: "Change teams" }).click();
+  await side("A").locator(".player").first().click();
+  await side("B").locator(".player").first().click();
+  await page.screenshot({ path: `${shots}24-teams-changing.png`, fullPage: true });
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("group", { name: /Save these teams/ }).waitFor();
+  await page.getByRole("button", { name: "Keep editing" }).click();
+  if (stored() !== storedBefore) throw new Error("declining the confirmation still saved");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("button", { name: "Save and tell players" }).click();
+  await page.getByText("Saved. Players have been told").waitFor();
+  if (stored() === storedBefore) throw new Error("saving did not change the teams");
+  if (revision() !== "1") throw new Error(`revision is ${revision()}`);
+  if (eventCount() !== "1") throw new Error(`expected one teams_changed event, got ${eventCount()}`);
+  await page.getByRole("button", { name: "Change teams" }).waitFor();
+  await page.screenshot({ path: `${shots}25-teams-changed.png`, fullPage: true });
+  step("saved after confirming: stored, revision 1, one notification");
 } catch (error) {
   await fail(error);
 }

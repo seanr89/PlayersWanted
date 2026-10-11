@@ -172,7 +172,7 @@ async function loadContext(client: SupabaseClient, matchId: string): Promise<Mes
 function compose(
   kind: NotificationKind,
   ctx: MessageContext,
-  options: { includeTeams: boolean },
+  options: { includeTeams: boolean; reason?: unknown },
 ): { title: string; body: string } {
   const when = formatWhen(ctx.startsAt, ctx.timeZone);
   const where = ctx.venueName ? ` at ${ctx.venueName}` : "";
@@ -202,11 +202,16 @@ function compose(
         title: `Teams are out for ${when}`,
         body: `Teams for ${ctx.groupName}${where} (${when}) are out.\n${options.includeTeams ? teamLines : openTheApp}`,
       };
-    case "teams_changed":
+    case "teams_changed": {
+      const what =
+        options.reason === "organiser_change"
+          ? `The organiser has changed the teams for ${ctx.groupName} (${when}).`
+          : `Someone dropped out, so the teams for ${ctx.groupName} (${when}) have changed.`;
       return {
         title: `Teams have changed for ${when}`,
-        body: `Someone dropped out, so the teams for ${ctx.groupName} (${when}) have changed.\n${options.includeTeams ? teamLines : openTheApp}`,
+        body: `${what}\n${options.includeTeams ? teamLines : openTheApp}`,
       };
+    }
     case "match_cancelled":
       return { title: `Cancelled: ${when}`, body: `${ctx.groupName} on ${when}${where} is cancelled.` };
   }
@@ -252,7 +257,7 @@ async function toNotification(service: SupabaseClient, event: ClaimedEvent, base
   if (!event.matchId) throw new Error("event has no match");
   const ctx = await loadContext(service, event.matchId);
   if (isStale(event.kind, ctx.status)) return null;
-  const { title, body } = compose(event.kind, ctx, { includeTeams: false });
+  const { title, body } = compose(event.kind, ctx, { includeTeams: false, reason: event.payload.reason });
   return {
     kind: event.kind,
     groupId: event.groupId,
