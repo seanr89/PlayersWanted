@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RATING, RATING_BANDS, bandFor, clampRating } from "./rating";
+import { DEFAULT_RATING, MAX_RATING, MIN_RATING, RATING_BANDS, bandFor, clampRating } from "./rating";
 
 describe("bandFor", () => {
   it("labels the ends of every band", () => {
-    expect(bandFor(1).label).toBe("Just turns up");
-    expect(bandFor(20).label).toBe("Just turns up");
-    expect(bandFor(21).label).toBe(bandFor(40).label);
-    expect(bandFor(81).label).toBe("Ex-semi-pro");
-    expect(bandFor(100).label).toBe("Ex-semi-pro");
+    for (const band of RATING_BANDS) {
+      expect(bandFor(band.from)).toBe(band);
+      expect(bandFor(band.to)).toBe(band);
+    }
   });
 
   it("covers every Rating from 1 to 100 with exactly one band", () => {
-    for (let rating = 1; rating <= 100; rating++) {
+    for (let rating = MIN_RATING; rating <= MAX_RATING; rating++) {
       const hits = RATING_BANDS.filter((b) => rating >= b.from && rating <= b.to);
       expect(hits, `rating ${rating}`).toHaveLength(1);
     }

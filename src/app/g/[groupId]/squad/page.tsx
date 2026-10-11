@@ -47,7 +47,6 @@ export default function SquadPage() {
               <button
                 className="button quiet"
                 aria-label={`Edit ${m.displayName}`}
-                aria-expanded={false}
                 ref={(el) => {
                   if (el) editButtons.current.set(m.id, el);
                   else editButtons.current.delete(m.id);
@@ -61,7 +60,7 @@ export default function SquadPage() {
               <PlayerEditor
                 member={m}
                 onSaved={data.reload}
-                onCancel={() => {
+                onClose={() => {
                   setEditing(null);
                   // The Edit button is remounted, so hand focus back once it exists.
                   requestAnimationFrame(() => editButtons.current.get(m.id)?.focus());

@@ -29,6 +29,7 @@ try {
   await page.getByRole("button", { name: "Edit Mo" }).click();
   const form = page.getByRole("form", { name: "Edit Mo" });
   const slider = form.getByRole("slider");
+  if (!(await slider.evaluate((el) => el === document.activeElement))) throw new Error("focus did not move into the editor");
   if ((await slider.inputValue()) !== "50") throw new Error("default Rating is not 50");
   if (!(await form.innerText()).includes("Solid Sunday player")) throw new Error("band label missing");
   if (!(await form.getByRole("button", { name: "Save" }).isDisabled())) throw new Error("Save should be off until something changes");
@@ -42,7 +43,6 @@ try {
   if (saveBottom > tabsTop) throw new Error(`Save (bottom ${saveBottom}) is under the tab bar (top ${tabsTop})`);
 
   // 2. Keyboard: arrow keys move the slider and the band follows; then save all three fields.
-  await slider.focus();
   for (let i = 0; i < 35; i++) await page.keyboard.press("ArrowRight");
   if ((await slider.inputValue()) !== "85") throw new Error(`slider at ${await slider.inputValue()}`);
   if (!(await form.innerText()).includes("Ex-semi-pro")) throw new Error("band did not follow the slider");
