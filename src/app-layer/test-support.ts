@@ -53,15 +53,28 @@ export function localTime(instant: string | Date, timeZone: string): { weekday: 
 let cachedServiceKey: string | undefined;
 
 /**
- * A client with the service role, as the delivery worker would use. The key is read from the running local
+ * The service-role key and a client using it, as the delivery worker would use. The key is read from the running local
  * stack (or SUPABASE_SERVICE_ROLE_KEY) rather than written into the repo.
  */
-export function serviceClient(): SupabaseClient {
+export function serviceKey(): string {
   if (!cachedServiceKey) {
     cachedServiceKey =
       process.env.SUPABASE_SERVICE_ROLE_KEY ??
       /SERVICE_ROLE_KEY="?([^"\n]+)"?/.exec(execFileSync("npx", ["supabase", "status", "-o", "env"], { encoding: "utf8" }))?.[1];
     if (!cachedServiceKey) throw new Error("could not find the local service role key");
   }
-  return createClient(URL, cachedServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  return cachedServiceKey;
+}
+
+export function serviceClient(): SupabaseClient {
+  return createClient(URL, serviceKey(), { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/** A signed-in user with a real email address, like an Admin who signed in with email or Google. */
+export async function newEmailUser(): Promise<{ client: SupabaseClient; email: string }> {
+  const email = `user-${Math.random().toString(36).slice(2, 10)}@example.test`;
+  const client = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error } = await client.auth.signUp({ email, password: "test-password-123" });
+  if (error) throw error;
+  return { client, email };
 }
