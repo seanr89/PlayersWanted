@@ -26,3 +26,26 @@ export function sql(query: string): string {
     encoding: "utf8",
   }).trim();
 }
+
+/**
+ * Run the recurring-template job as the scheduler would, pretending it is `at`. Scoped to one group so tests
+ * don't touch each other's data. Returns how many Matches it created.
+ */
+export function runRecurringJob(at: Date, groupId?: string): number {
+  const scope = groupId ? `'${groupId}'` : "null";
+  return Number(sql(`select private.run_recurring_templates('${at.toISOString()}', ${scope})`));
+}
+
+/** Weekday (0 = Sunday) and hour:minute of an instant as seen in a time zone. */
+export function localTime(instant: string | Date, timeZone: string): { weekday: number; time: string } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(instant));
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+  return { weekday, time: `${get("hour")}:${get("minute")}` };
+}

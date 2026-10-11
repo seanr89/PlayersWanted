@@ -58,5 +58,12 @@ Rating, position and pair rules go, their upcoming RSVPs and team slots are clea
 "Former player" so Results and attendance remain correct. Every Group always has an Owner (enforced by a deferred
 trigger). Note this is pseudonymisation of past appearances: the placeholder keeps its row id.
 
-Still to do: the venues and the recurring template, and the notification interface (at-risk nudge, share messages,
-push and email).
+Venues are saved per Group (created inline the first time they are typed, with an address, a maps link and a default
+cost). A Group can have one weekly Recurring template (weekday, time and time zone, venue, capacity, cost, RSVP lead
+time and deadline). A job inside Postgres (`pg_cron`, every 15 minutes) calls `private.run_recurring_templates`: it
+makes the next Match from each template and opens RSVPs at the lead time. It is idempotent per occurrence, keeps the
+local time across daylight-saving changes, and one template failing does not stop the others. Saving a template makes
+next week's Match straight away. Edits to a single Match never change the template, and a template edit only changes
+Matches made afterwards (except that an unseen, unmoved next Match is replaced when the night or time changes).
+
+Still to do: the notification interface (at-risk nudge, share messages, push and email).
