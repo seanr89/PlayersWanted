@@ -639,3 +639,64 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Squad editing ---------------------------------------------------------------------------- */
+
+.list li.editable {
+  flex-wrap: wrap;
+}
+
+.list li.editable > .editor,
+.list li.editable > .stack {
+  flex-basis: 100%;
+}
+
+.editor {
+  padding: 4px 0 8px;
+}
+
+.editor input[type="range"] {
+  padding: 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  accent-color: var(--turf);
+}
+
+.band {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.bands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.list .bands li {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+
+.bands li[aria-current="true"] {
+  color: var(--touchline);
+  font-weight: 700;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  accent-color: var(--turf);
+}
